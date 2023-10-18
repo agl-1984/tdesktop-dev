@@ -47,6 +47,8 @@ def main():
     if "RSA_PRIVATE" in os.environ:
         with open(os.path.join(private_path, "packer_private.h"), "w") as f:
             f.write(os.environ["RSA_PRIVATE"])
+    with open(os.path.join(private_path, "Sign.bat"), "w") as f:
+        pass
 
     cmd = "build.bat -DDESKTOP_APP_SPECIAL_TARGET=" + target
 
