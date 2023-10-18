@@ -45,6 +45,12 @@ if (WIN32)
     nuget_add_winrt(Telegram)
 endif()
 
+if (CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
+    # it is set only for x64 in cmake/*.cmake files
+    # but required for win32 build in Release mode
+    add_compile_options("/bigobj")
+endif()
+
 set_target_properties(Telegram PROPERTIES AUTOMOC ON)
 
 target_link_libraries(Telegram
