@@ -1,7 +1,12 @@
 name: Public Release.
 
 on:
-  workflow_dispatch
+  push:
+    paths-ignore:
+      - '**'
+      - '!.github/workflows/release_win.yml'
+      - '!Telegram/build/release_build.py'
+  workflow_dispatch:
 
 jobs:
 
