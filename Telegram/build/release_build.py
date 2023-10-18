@@ -3,7 +3,6 @@
 # usage release_build.py <target>
 import sys
 import os
-import subprocess
 
 _THIS_DIR = os.path.dirname(__file__)
 
@@ -21,11 +20,13 @@ def main():
     api_id = os.environ["API_ID"]
     api_hash = os.environ["API_HASH"]
 
+    print("Set target = %s" % (target))
     file_target = os.path.join(_THIS_DIR, "target")
     with open(file_target, "w") as f:
         f.write(target)
 
     # Prepare dropbox path
+    print("Stub output file locations")
     dropbox_path = os.path.join(_THIS_DIR, "../../../Dropbox/Telegram/symbols")
     if not os.path.exists(dropbox_path):
         os.makedirs(dropbox_path)
@@ -34,25 +35,30 @@ def main():
     if not os.path.exists(release_path):
         os.makedirs(release_path)
 
+    print("Generate DesktopPrivate")
     private_path = os.path.join(_THIS_DIR, "../../../DesktopPrivate")
     if not os.path.exists(private_path):
         os.makedirs(private_path)
+    print("Generate custom_api_id.h")
     with open(os.path.join(private_path, "custom_api_id.h"), "w") as f:
         f.write("const long ApiId = %s\n" % (api_id))
         f.write("const char* ApiHash = \"%s\"\n" % (api_hash))
 
     # RSA Keys
+    print("Generate alpha_private.h")
     with open(os.path.join(private_path, "alpha_private.h"), "w") as f:
         f.write("static const char *AlphaPrivateKey = \"\";\n")
     if "RSA_PRIVATE" in os.environ:
+        print("Generate packer_private.h")
         with open(os.path.join(private_path, "packer_private.h"), "w") as f:
             f.write(os.environ["RSA_PRIVATE"])
+    print("Generate Sign.bat")
     with open(os.path.join(private_path, "Sign.bat"), "w") as f:
         pass
 
     cmd = "build.bat -DDESKTOP_APP_SPECIAL_TARGET=" + target
-
-    os.system(cmd)
+    print("Call %s" % (cmd))
+    sys.exit(os.system(cmd))
 
 if __name__ == "__main__":
     main()
