@@ -49,7 +49,7 @@ if (CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
     # it is set only for x64 in cmake/*.cmake files
     # but required for win32 build in Release mode
     target_compile_options(td_scheme
-    PRIVATE
+    PUBLIC
         /bigobj
     )
 endif()
