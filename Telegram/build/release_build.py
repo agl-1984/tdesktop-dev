@@ -56,6 +56,16 @@ def main():
     with open(os.path.join(private_path, "Sign.bat"), "w") as f:
         pass
 
+    # Apply patches
+    ## d3d
+    cmd = "cd %s && git checkout ./validate_d3d_compiler.py" % (os.path.join(_THIS_DIR, "../../cmake"))
+    print("Call %s" % (cmd))
+    os.system(cmd)
+    cmd = "cd %s && git apply %s" % (os.path.join(_THIS_DIR, "../../cmake"),
+                                     os.path.join(_THIS_DIR, "patches/validate_d3d_compiler.patch"))
+    print("Call %s" % (cmd))
+    os.system(cmd)
+
     cmd = "build.bat -DDESKTOP_APP_SPECIAL_TARGET=" + target
     print("Call %s" % (cmd))
     sys.exit(os.system(cmd))
