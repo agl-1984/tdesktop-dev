@@ -44,3 +44,9 @@ if (CMAKE_SYSTEM_PROCESSOR STREQUAL "mips64")
         -mxgot
     )
 endif()
+
+if (CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
+    # it is set only for x64 in cmake/*.cmake files
+    # but required for win32 build in Release mode
+    add_compile_options("/bigobj")
+endif()
