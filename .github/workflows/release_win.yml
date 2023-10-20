@@ -33,8 +33,9 @@ jobs:
     steps:
       - name: Prepare directories.
         run: |
-          if not exist "%userprofile%\TBuild\Libraries" %userprofile%\TBuild\Libraries
-          mklink /d %GITHUB_WORKSPACE%\TBuild %userprofile%\TBuild
+          #following is for github-hosted runners
+          #mkdir %userprofile%\TBuild\Libraries
+          #mklink /d %GITHUB_WORKSPACE%\TBuild %userprofile%\TBuild
           echo TBUILD=%GITHUB_WORKSPACE%\TBuild>>%GITHUB_ENV%
 
       - name: Get repository name.
