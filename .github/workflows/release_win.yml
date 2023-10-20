@@ -33,7 +33,7 @@ jobs:
     steps:
       - name: Prepare directories.
         run: |
-          mkdir -p %userprofile%\TBuild\Libraries
+          if not exist "%userprofile%\TBuild\Libraries" %userprofile%\TBuild\Libraries
           mklink /d %GITHUB_WORKSPACE%\TBuild %userprofile%\TBuild
           echo TBUILD=%GITHUB_WORKSPACE%\TBuild>>%GITHUB_ENV%
 
