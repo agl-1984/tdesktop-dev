@@ -65,10 +65,10 @@ jobs:
 
     steps:
       - name: Prepare directories.
-        run: |
           #following is for github-hosted runners
           #mkdir %userprofile%\TBuild\Libraries
           #mklink /d %GITHUB_WORKSPACE%\TBuild %userprofile%\TBuild
+        run: |
           echo TBUILD=%GITHUB_WORKSPACE%\TBuild>>%GITHUB_ENV%
 
       - name: Get repository name.
