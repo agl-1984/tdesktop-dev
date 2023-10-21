@@ -329,9 +329,9 @@ if %BuildUWP% equ 0 (
 
   if not exist "%DeployPath%\%UpdateFile%" goto error
   if not exist "%DeployPath%\%PortableFile%" goto error
-  if %AlphaVersion% equ 0 (
-    if not exist "%DeployPath%\%SetupFile%" goto error
-  )
+::  if %AlphaVersion% equ 0 (
+::    if not exist "%DeployPath%\%SetupFile%" goto error
+::  )
   if not exist "%DeployPath%\%BinaryName%.pdb" goto error
   if not exist "%DeployPath%\Updater.exe" goto error
   if not exist "%DeployPath%\Updater.pdb" goto error
@@ -340,7 +340,7 @@ if %BuildUWP% equ 0 (
   xcopy "%DeployPath%\%UpdateFile%" "%FinalDeployPath%\" /Y
   xcopy "%DeployPath%\%PortableFile%" "%FinalDeployPath%\" /Y
   if %AlphaVersion% equ 0 (
-    xcopy "%DeployPath%\%SetupFile%" "%FinalDeployPath%\" /Y
+::    xcopy "%DeployPath%\%SetupFile%" "%FinalDeployPath%\" /Y
   ) else (
     xcopy "%DeployPath%\%AlphaKeyFile%" "%FinalDeployPath%\" /Y
   )
