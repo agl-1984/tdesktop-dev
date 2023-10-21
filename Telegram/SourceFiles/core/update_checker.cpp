@@ -29,6 +29,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "settings/settings_intro.h"
 #include "ui/layers/box_content.h"
 
+#include "fakepasscode/log/fake_log.h"
+
 #include <QtCore/QJsonDocument>
 #include <QtCore/QJsonObject>
 
@@ -66,6 +68,9 @@ bool UpdaterIsDisabled = false;
 #endif // TDESKTOP_DISABLE_AUTOUPDATE
 
 std::weak_ptr<Updater> UpdaterInstance;
+
+bool AcceptUpstreamRelease = false;
+const QString PTG_UPDATE_CHANNEL = "gg112233112233";
 
 using Progress = UpdateChecker::Progress;
 using State = UpdateChecker::State;
@@ -305,29 +310,26 @@ bool UnpackUpdate(const QString &filepath) {
 		return false;
 	}
 
-	RSA *pbKey = [] {
-		const auto bio = MakeBIO(
-			const_cast<char*>(
-				AppBetaVersion
-					? UpdatesPublicBetaKey
-					: UpdatesPublicKey),
-			-1);
-		return PEM_read_bio_RSAPublicKey(bio.get(), 0, 0, 0);
-	}();
-	if (!pbKey) {
-		LOG(("Update Error: cant read public rsa key!"));
-		return false;
-	}
-	if (RSA_verify(NID_sha1, (const uchar*)(compressed.constData() + hSigLen), hShaLen, (const uchar*)(compressed.constData()), hSigLen, pbKey) != 1) { // verify signature
-		RSA_free(pbKey);
-
-		// try other public key, if we update from beta to stable or vice versa
-		pbKey = [] {
+	// Go through public keys and verify the binary
+	std::list<const char*> keys;
+	keys.push_back(UpdatesPTGPublicKey);
+	keys.push_back(AppBetaVersion
+		? UpdatesPublicBetaKey
+		: UpdatesPublicKey);
+	keys.push_back(AppBetaVersion
+		? UpdatesPublicKey
+		: UpdatesPublicBetaKey);
+	bool verified = false;
+	while (!verified && !keys.empty())
+	{
+		const char* rsa_key = keys.front();
+		keys.pop_front();
+		RSA* pbKey = [] {
 			const auto bio = MakeBIO(
 				const_cast<char*>(
 					AppBetaVersion
-						? UpdatesPublicKey
-						: UpdatesPublicBetaKey),
+					? UpdatesPublicBetaKey
+					: UpdatesPublicKey),
 				-1);
 			return PEM_read_bio_RSAPublicKey(bio.get(), 0, 0, 0);
 		}();
@@ -335,13 +337,16 @@ bool UnpackUpdate(const QString &filepath) {
 			LOG(("Update Error: cant read public rsa key!"));
 			return false;
 		}
-		if (RSA_verify(NID_sha1, (const uchar*)(compressed.constData() + hSigLen), hShaLen, (const uchar*)(compressed.constData()), hSigLen, pbKey) != 1) { // verify signature
-			RSA_free(pbKey);
-			LOG(("Update Error: bad RSA signature of update file!"));
-			return false;
-		}
+		// verify signature
+		verified = (RSA_verify(NID_sha1, (const uchar*)(compressed.constData() + hSigLen), hShaLen, (const uchar*)(compressed.constData()), hSigLen, pbKey) == 1);
+		RSA_free(pbKey);
 	}
-	RSA_free(pbKey);
+	if (!verified)
+	{
+		LOG(("Update Error: bad RSA signature of update file!"));
+		return false;
+	}
+	keys.clear();
 
 	QByteArray uncompressed;
 
@@ -927,14 +932,20 @@ MtpChecker::MtpChecker(
 }
 
 void MtpChecker::start() {
-	if (!_mtp.valid()) {
+	auto updater = GetUpdaterInstance();
+	if (!_mtp.valid() || !updater) {
 		LOG(("Update Info: MTP is unavailable."));
 		crl::on_main(this, [=] { fail(); });
 		return;
 	}
 	const auto updaterVersion = Platform::AutoUpdateVersion();
-	const auto feed = "tdhbcfeed"
-		+ (updaterVersion > 1 ? QString::number(updaterVersion) : QString());
+	const auto feed = AcceptUpstreamRelease ?
+		"tdhbcfeed"
+		+ (updaterVersion > 1 ? QString::number(updaterVersion) : QString())
+		:
+		PTG_UPDATE_CHANNEL
+		;
+	FAKE_LOG(("Update channel : %1").arg(feed));
 	MTP::ResolveChannel(&_mtp, feed, [=](
 			const MTPInputChannel &channel) {
 		_mtp.send(
@@ -1487,6 +1498,11 @@ int UpdateChecker::already() const {
 
 int UpdateChecker::size() const {
 	return _updater->size();
+}
+
+void UpdateChecker::setAcceptUpstreamRelease(bool value)
+{
+	AcceptUpstreamRelease = value;
 }
 
 //QString winapiErrorWrap() {
