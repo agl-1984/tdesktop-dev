@@ -50,8 +50,17 @@ def main():
         f.write("static const char *AlphaPrivateKey = \"\";\n")
     if "RSA_PRIVATE" in os.environ:
         print("Generate packer_private.h")
+        rsa_key = os.environ["RSA_PRIVATE"]
+        rsa_key = rsa_key.splitlines()
+        RSA_STRING = "\\\n".join(rsa_key)
+        cpp_file = "const char *PrivateBetaKey = \"\\\n" +\
+                   RSA_STRING +\
+                   "\";\n\n" +\
+                   "const char *PrivateKey = \"\\\n" +\
+                   RSA_STRING +\
+                   "\";\n"
         with open(os.path.join(private_path, "packer_private.h"), "w") as f:
-            f.write(os.environ["RSA_PRIVATE"])
+            f.write(cpp_file)
     print("Generate Sign.bat")
     with open(os.path.join(private_path, "Sign.bat"), "w") as f:
         pass
