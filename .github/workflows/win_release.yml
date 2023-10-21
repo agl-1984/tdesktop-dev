@@ -105,8 +105,8 @@ jobs:
         uses: actions/cache@v3.0.11
         with:
           path: ${{ env.TBUILD }}\Libraries
-          key: ${{ runner.OS }}-${{ matrix.arch }}-libs-${{ env.CACHE_KEY }}
-          restore-keys: ${{ runner.OS }}-${{ matrix.arch }}-libs-
+          key: ${{ runner.OS }}-${{ matrix.arch }}-rellibs-${{ env.CACHE_KEY }}
+          restore-keys: ${{ runner.OS }}-${{ matrix.arch }}-rellibs-
 
       - name: Libraries.
         env:
