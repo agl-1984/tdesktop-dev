@@ -339,11 +339,11 @@ if %BuildUWP% equ 0 (
 
   xcopy "%DeployPath%\%UpdateFile%" "%FinalDeployPath%\" /Y
   xcopy "%DeployPath%\%PortableFile%" "%FinalDeployPath%\" /Y
-  if %AlphaVersion% equ 0 (
+::  if %AlphaVersion% equ 0 (
 ::    xcopy "%DeployPath%\%SetupFile%" "%FinalDeployPath%\" /Y
-  ) else (
-    xcopy "%DeployPath%\%AlphaKeyFile%" "%FinalDeployPath%\" /Y
-  )
+::  ) else (
+::    xcopy "%DeployPath%\%AlphaKeyFile%" "%FinalDeployPath%\" /Y
+::  )
 )
 
 echo Version %AppVersionStrFull% is ready!
