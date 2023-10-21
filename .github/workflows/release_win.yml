@@ -6,6 +6,7 @@ on:
       - '**'
       - '!.github/workflows/release_win.yml'
       - '!Telegram/build/release_build.py'
+      - '!Telegram/build/build.bat'
   workflow_dispatch:
 
 jobs:
