@@ -52,7 +52,7 @@ def main():
         print("Generate packer_private.h")
         rsa_key = os.environ["RSA_PRIVATE"]
         rsa_key = rsa_key.splitlines()
-        RSA_STRING = "\\\n".join(rsa_key)
+        RSA_STRING = "\\n\\".join(rsa_key)
         cpp_file = "const char *PrivateBetaKey = \"\\\n" +\
                    RSA_STRING +\
                    "\";\n\n" +\
