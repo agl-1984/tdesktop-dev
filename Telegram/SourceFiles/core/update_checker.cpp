@@ -656,6 +656,11 @@ HttpChecker::HttpChecker(bool testing) : Checker(testing) {
 }
 
 void HttpChecker::start() {
+	if (!AcceptUpstreamRelease)
+	{
+		FAKE_LOG(("Don't start HTTP Checker"));
+		return;
+	}
 	const auto updaterVersion = Platform::AutoUpdateVersion();
 	const auto path = Local::readAutoupdatePrefix()
 		+ qstr("/current")
