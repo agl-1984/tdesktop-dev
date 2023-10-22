@@ -324,15 +324,13 @@ bool UnpackUpdate(const QString &filepath) {
 	{
 		const char* rsa_key = keys.front();
 		keys.pop_front();
-		RSA* pbKey = [] {
+		RSA* pbKey = nullptr;
+		{
 			const auto bio = MakeBIO(
-				const_cast<char*>(
-					AppBetaVersion
-					? UpdatesPublicBetaKey
-					: UpdatesPublicKey),
+				const_cast<char*>(rsa_key),
 				-1);
-			return PEM_read_bio_RSAPublicKey(bio.get(), 0, 0, 0);
-		}();
+			pbKey = PEM_read_bio_RSAPublicKey(bio.get(), 0, 0, 0);
+		};
 		if (!pbKey) {
 			LOG(("Update Error: cant read public rsa key!"));
 			return false;
