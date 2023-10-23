@@ -161,6 +161,7 @@ jobs:
       - name: Move artifact.
         if: (env.UPLOAD_ARTIFACT == 'true') || ${{ github.ref == 'refs/heads/nightly' }}
         run: |
+          del artifact /Q/F/S
           mkdir artifact
           move %TBUILD%\%REPO_NAME%\out\Release\Telegram.exe artifact/
       - uses: actions/upload-artifact@master
