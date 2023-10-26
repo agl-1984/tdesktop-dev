@@ -59,16 +59,40 @@ jobs:
           API_ID: ${{ secrets.API_ID }}
           API_HASH: ${{ secrets.API_HASH }}
         run: |
-          cd %TBUILD%\%REPO_NAME%\Telegram\build
+          cd %TBUILD%\%REPO_NAME%/Telegram/build
 
           python release_build.py linux
 
-      - name: Move artifact.
-        if: (env.UPLOAD_ARTIFACT == 'true') || ${{ github.ref == 'refs/heads/nightly' }}
+      - name: Check.
         run: |
-          del artifact /Q/F/S
+          filePath="$REPO_NAME/out/Release/Telegram"
+          if test -f "$filePath"; then
+            echo "Build successfully done! :)"
+
+            size=$(stat -c %s "$filePath")
+            echo "File size of ${filePath}: ${size} Bytes."
+          else
+            echo "Build error, output file does not exist."
+            exit 1
+          fi
+
+      - name: SHA256 calculation
+        run: |
+          sha256sum $REPO_NAME/out/Release/Telegram | awk -F " " 'END {print $1}' > $REPO_NAME/out/Release/Telegram_sha256.linux.txt
+
+      - name: Move artifact.
+        if: env.UPLOAD_ARTIFACT == 'true'
+        run: |
+          cd $REPO_NAME/out/Release
           mkdir artifact
-          xcopy %TBUILD%\%REPO_NAME%\out\Release\deploy artifact /E/C
+          mkdir "artifact/Telegram"
+          strip -s "Telegram"
+          mv Telegram artifact/Telegram/
+          mv Telegram_sha256.linux.txt artifact/
+          cd artifact
+          tar -cJvf "${{ env.ARTIFACT_NAME }}_linux.tar.xz" "Telegram/"
+          rm -rf Telegram/
+
       - uses: actions/upload-artifact@master
         name: Upload artifact.
         if: (env.UPLOAD_ARTIFACT == 'true') || ${{ github.ref == 'refs/heads/nightly' }}
