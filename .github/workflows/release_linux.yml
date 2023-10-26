@@ -61,7 +61,7 @@ jobs:
         run: |
           cd $REPO_NAME/Telegram/build
 
-          python release_build.py linux
+          python3 release_build.py linux
 
       - name: Check.
         run: |
