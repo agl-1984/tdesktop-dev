@@ -81,7 +81,7 @@ def main():
     if platform.system() == "Windows":
         cmd = "build.bat"
     else:
-        cmd = "build.sh"
+        cmd = "./build.sh"
     cmd += " -DDESKTOP_APP_SPECIAL_TARGET=" + target
     print("Call %s" % (cmd))
     sys.exit(os.system(cmd))
