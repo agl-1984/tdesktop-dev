@@ -59,7 +59,7 @@ jobs:
           API_ID: ${{ secrets.API_ID }}
           API_HASH: ${{ secrets.API_HASH }}
         run: |
-          cd %TBUILD%\%REPO_NAME%/Telegram/build
+          cd %TBUILD%/%REPO_NAME%/Telegram/build
 
           python release_build.py linux
 
@@ -98,4 +98,4 @@ jobs:
         if: (env.UPLOAD_ARTIFACT == 'true') || ${{ github.ref == 'refs/heads/nightly' }}
         with:
           name: ${{ env.ARTIFACT_NAME }}
-          path: artifact\
+          path: $REPO_NAME/out/Release/artifact
