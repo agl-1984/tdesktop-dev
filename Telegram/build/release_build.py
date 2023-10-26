@@ -3,6 +3,7 @@
 # usage release_build.py <target>
 import sys
 import os
+import platform
 
 _THIS_DIR = os.path.dirname(__file__)
 
@@ -61,9 +62,11 @@ def main():
                    "\";\n"
         with open(os.path.join(private_path, "packer_private.h"), "w") as f:
             f.write(cpp_file)
-    print("Generate Sign.bat")
-    with open(os.path.join(private_path, "Sign.bat"), "w") as f:
-        pass
+
+    if platform.system() == "Windows":
+        print("Generate Sign.bat")
+        with open(os.path.join(private_path, "Sign.bat"), "w") as f:
+            pass
 
     # Apply patches
     ## d3d
@@ -75,7 +78,11 @@ def main():
     print("Call %s" % (cmd))
     os.system(cmd)
 
-    cmd = "build.bat -DDESKTOP_APP_SPECIAL_TARGET=" + target
+    if platform.system() == "Windows":
+        cmd = "build.bat"
+    else:
+        cmd = "build.sh"
+    cmd += " -DDESKTOP_APP_SPECIAL_TARGET=" + target
     print("Call %s" % (cmd))
     sys.exit(os.system(cmd))
 
