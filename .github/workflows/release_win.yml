@@ -1,4 +1,4 @@
-name: Public Release.
+name: Public Windows Release.
 
 on:
   push:

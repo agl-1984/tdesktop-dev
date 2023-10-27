@@ -149,6 +149,7 @@ if [ "$BuildTarget" == "linux" ]; then
     Error "Backup folder not found!"
   fi
 
+  cd $HomePath
   ./build/docker/centos_env/run.sh /usr/src/tdesktop/Telegram/build/docker/build.sh
 
   echo "Copying from docker result folder."
@@ -157,7 +158,7 @@ if [ "$BuildTarget" == "linux" ]; then
   cp "$ReleasePath/root/Packer" "$ReleasePath/Packer"
 
   echo "Dumping debug symbols.."
-  "$ReleasePath/dump_syms" "$ReleasePath/$BinaryName" > "$ReleasePath/$BinaryName.sym"
+  #"$ReleasePath/dump_syms" "$ReleasePath/$BinaryName" > "$ReleasePath/$BinaryName.sym"
   echo "Done!"
 
   echo "Stripping the executable.."
@@ -474,8 +475,8 @@ if [ "$BuildTarget" == "mac" ] || [ "$BuildTarget" == "macstore" ]; then
 fi
 
 echo "Version $AppVersionStrFull is ready!";
-echo -en "\007";
-sleep 1;
-echo -en "\007";
-sleep 1;
-echo -en "\007";
+#echo -en "\007";
+#sleep 1;
+#echo -en "\007";
+#sleep 1;
+#echo -en "\007";
