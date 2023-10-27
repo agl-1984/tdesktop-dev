@@ -28,13 +28,22 @@ def main():
 
     # Prepare dropbox path
     print("Stub output file locations")
-    dropbox_path = os.path.join(_THIS_DIR, "../../../Dropbox/Telegram/symbols")
-    if not os.path.exists(dropbox_path):
-        os.makedirs(dropbox_path)
-    # Prepare release path
-    release_path = os.path.join(_THIS_DIR, "../../../Projects/backup/tdesktop")
-    if not os.path.exists(release_path):
-        os.makedirs(release_path)
+    if platform.system() == "Windows":
+        dropbox_path = os.path.join(_THIS_DIR, "../../../Dropbox/Telegram/symbols")
+        if not os.path.exists(dropbox_path):
+            os.makedirs(dropbox_path)
+        # Prepare release path
+        release_path = os.path.join(_THIS_DIR, "../../../Projects/backup/tdesktop")
+        if not os.path.exists(release_path):
+            os.makedirs(release_path)
+    else:
+        dropbox_path = os.path.join(_THIS_DIR, "../../out/Dropbox/Telegram/symbols")
+        if not os.path.exists(dropbox_path):
+            os.makedirs(dropbox_path)
+        # Prepare release path
+        release_path = os.path.join(_THIS_DIR, "../../out/backup/tdesktop")
+        if not os.path.exists(release_path):
+            os.makedirs(release_path)
 
     print("Generate DesktopPrivate")
     private_path = os.path.join(_THIS_DIR, "../../../DesktopPrivate")
