@@ -89,6 +89,8 @@ def main():
 
     if platform.system() == "Windows":
         cmd = "build.bat"
+    elif platform.system() == "Linux":
+        cmd = "bash ./build.sh"
     else:
         cmd = "bash ./build.sh"
     cmd += " -DDESKTOP_APP_SPECIAL_TARGET=" + target

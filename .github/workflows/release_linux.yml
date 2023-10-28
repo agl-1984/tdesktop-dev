@@ -14,6 +14,7 @@ jobs:
   Linux:
     name: Rocky Linux 8
     runs-on: ubuntu-latest
+    continue-on-error: ${{ matrix.experimental }}
     container:
       image: ghcr.io/${{ github.repository }}/centos_env
       credentials:
@@ -30,6 +31,7 @@ jobs:
           - ""
 #          - "DESKTOP_APP_DISABLE_X11_INTEGRATION"
 #          - "DESKTOP_APP_DISABLE_WAYLAND_INTEGRATION"
+        experimental: [false]
 
     env:
       UPLOAD_ARTIFACT: "true"
