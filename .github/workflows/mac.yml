@@ -113,6 +113,8 @@ jobs:
           else
             echo "ARTIFACT_NAME=Telegram" >> $GITHUB_ENV
           fi
+          
+          sudo xcode-select --switch /Applications/Xcode_15.0.app
 
           ./configure.sh \
           -D TDESKTOP_API_TEST=OFF \
