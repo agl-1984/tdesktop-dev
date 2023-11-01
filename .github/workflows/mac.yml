@@ -93,8 +93,6 @@ jobs:
 
       - name: Libraries.
         run: |
-          
-          sudo xcode-select --switch /Applications/Xcode_15.0.app
           ./$REPO_NAME/Telegram/build/prepare/mac.sh silent skip-qt5 build-qt6
 
       - name: Free up some disk space.
@@ -115,8 +113,6 @@ jobs:
           else
             echo "ARTIFACT_NAME=Telegram" >> $GITHUB_ENV
           fi
-          
-          sudo xcode-select --switch /Applications/Xcode_15.0.app
 
           ./configure.sh \
           -D TDESKTOP_API_TEST=OFF \
