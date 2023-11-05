@@ -273,7 +273,6 @@ bool SendDice(MessageToSend &message) {
 		flags |= MessageFlag::HasReplyInfo;
 		sendFlags |= MTPmessages_SendMedia::Flag::f_reply_to;
 	}
-	const auto replyHeader = NewMessageReplyHeader(message.action);
 	const auto anonymousPost = peer->amAnonymous();
 	const auto silentPost = ShouldSendSilent(peer, message.action.options);
 	InnerFillMessagePostFlags(message.action.options, peer, flags);
@@ -372,9 +371,9 @@ void SendConfirmedFile(
 
 	if (!isEditing) {
 		const auto histories = &session->data().histories();
-		file->to.replyTo.msgId = histories->convertTopicReplyToId(
+		file->to.replyTo.messageId = histories->convertTopicReplyToId(
 			history,
-			file->to.replyTo.msgId);
+			file->to.replyTo.messageId);
 		file->to.replyTo.topicRootId = histories->convertTopicReplyToId(
 			history,
 			file->to.replyTo.topicRootId);
@@ -403,7 +402,6 @@ void SendConfirmedFile(
 	if (file->to.replyTo) {
 		flags |= MessageFlag::HasReplyInfo;
 	}
-	const auto replyHeader = NewMessageReplyHeader(action);
 	const auto anonymousPost = peer->amAnonymous();
 	const auto silentPost = ShouldSendSilent(peer, file->to.options);
 	FillMessagePostFlags(action, peer, flags);
