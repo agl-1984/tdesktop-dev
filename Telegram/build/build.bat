@@ -104,6 +104,7 @@ if %Build64% neq 0 (
 )
 set "ReleasePath=%SolutionPath%\Release"
 set "DeployPath=%ReleasePath%\deploy\%AppVersionStrMajor%\%AppVersionStrFull%"
+set "DeployPath=%ReleasePath%\deploy"
 set "SignPath=%HomePath%\..\..\DesktopPrivate\Sign.bat"
 set "BinaryName=Telegram"
 set "DropboxSymbolsPath=Y:\Telegram\symbols"
@@ -136,10 +137,10 @@ if %BuildUWP% neq 0 (
   )
 )
 if %AlphaVersion% neq 0 (
-  if exist %DeployPath%\ (
-    echo Deploy folder for version %AppVersionStr% already exists!
-    exit /b 1
-  )
+  rem if exist %DeployPath%\ (
+  rem   echo Deploy folder for version %AppVersionStr% already exists!
+  rem   exit /b 1
+  rem )
   if exist %ReleasePath%\%AlphaKeyFile% (
     echo Alpha version key file for version %AppVersion% already exists!
     exit /b 1
