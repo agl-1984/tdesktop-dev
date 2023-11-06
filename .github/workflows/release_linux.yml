@@ -85,15 +85,9 @@ jobs:
       - name: Move artifact.
         if: env.UPLOAD_ARTIFACT == 'true'
         run: |
-          cd $REPO_NAME/out/Release
-          mkdir artifact
-          mkdir "artifact/Telegram"
-          strip -s "Telegram"
-          mv Telegram artifact/Telegram/
-          mv Telegram_sha256.linux.txt artifact/
-          cd artifact
-          tar -cJvf "${{ env.ARTIFACT_NAME }}_linux.tar.xz" "Telegram/"
-          rm -rf Telegram/
+          cd $REPO_NAME/out/Release/deploy
+          mkdir ../artifact
+          mv tsetup* ../artifact
 
       - uses: actions/upload-artifact@master
         name: Upload artifact.

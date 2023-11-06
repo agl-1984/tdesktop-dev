@@ -79,9 +79,9 @@ elif [ "$BuildTarget" == "mac" ] ; then
     fi
   fi
 
-  if [ "$AC_USERNAME" == "" ]; then
-    Error "AC_USERNAME not found!"
-  fi
+  #if [ "$AC_USERNAME" == "" ]; then
+  #  Error "AC_USERNAME not found!"
+  #fi
   UpdateFileAMD64="tmacupd$AppVersion"
   UpdateFileARM64="tarmacupd$AppVersion"
   if [ "$MacArch" == "arm64" ]; then
@@ -135,7 +135,7 @@ else
   fi
 fi
 
-DeployPath="$ReleasePath/deploy/$AppVersionStrMajor/$AppVersionStrFull"
+DeployPath="$ReleasePath/deploy"
 
 if [ "$BuildTarget" == "linux" ]; then
 
