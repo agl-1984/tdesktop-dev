@@ -15,15 +15,10 @@ jobs:
     name: MacOS
     runs-on: macos-13
 
-    defaults:
-      run:
-        shell: scl enable gcc-toolset-12 -- bash --noprofile --norc -eo pipefail {0}
-
     strategy:
       matrix:
         defines:
           - ""
-
     env:
       UPLOAD_ARTIFACT: "true"
 
