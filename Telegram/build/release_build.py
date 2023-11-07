@@ -95,7 +95,9 @@ def main():
         cmd = "bash ./build.sh"
     cmd += " -DDESKTOP_APP_SPECIAL_TARGET=" + target
     print("Call %s" % (cmd))
-    sys.exit(os.system(cmd))
+    result = os.system(cmd)
+    print("Finished: %s" % (result))
+    sys.exit(result)
 
 if __name__ == "__main__":
     main()

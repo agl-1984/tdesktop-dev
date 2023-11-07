@@ -151,6 +151,7 @@ if [ "$BuildTarget" == "linux" ]; then
 
   cd $HomePath
   $FullScriptPath/docker/build.sh
+  echo "Build completed - $?"
 
   echo "Copying from docker result folder."
   cp "$ReleasePath/root/$BinaryName" "$ReleasePath/$BinaryName"

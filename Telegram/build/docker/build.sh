@@ -30,6 +30,7 @@ fi
 
 cd $ProjectPath
 cmake --build . --config Release --target Telegram
+echo "CMake Build completed - $?"
 cd $ReleasePath
 
 echo "$BinaryName build complete!"

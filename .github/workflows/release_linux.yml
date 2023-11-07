@@ -78,10 +78,6 @@ jobs:
             exit 1
           fi
 
-      - name: SHA256 calculation
-        run: |
-          sha256sum $REPO_NAME/out/Release/Telegram | awk -F " " 'END {print $1}' > $REPO_NAME/out/Release/Telegram_sha256.linux.txt
-
       - name: Move artifact.
         if: env.UPLOAD_ARTIFACT == 'true'
         run: |
