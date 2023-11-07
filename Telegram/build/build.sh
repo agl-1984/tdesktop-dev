@@ -251,6 +251,7 @@ if [ "$BuildTarget" == "mac" ] || [ "$BuildTarget" == "macstore" ]; then
       rm -rf "$ReleasePath/$BinaryName.app/Contents/_CodeSignature"
       rm -rf "$ReleasePath/Updater"
 
+      cd $HomePath
       ./configure.sh -D DESKTOP_APP_MAC_ARCH="arm64;x86_64"
 
       cd $ProjectPath
