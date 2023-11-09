@@ -103,13 +103,13 @@ jobs:
           $DEFINE
           
           echo "************************"
-          df -hs
+          df -h
           echo "************************"
 
           cmake --build ../out --config Release --parallel
 
           echo "************************"
-          df -hs
+          df -h
           echo "************************"
 
       - name: Check.

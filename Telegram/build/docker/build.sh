@@ -29,7 +29,7 @@ fi
 ./configure.sh -DDESKTOP_APP_SPECIAL_TARGET=linux -DCMAKE_EXE_LINKER_FLAGS="-fno-lto"
 
 echo "************************"
-df -hs
+df -h
 echo "************************"
 
 cd $ProjectPath
@@ -38,7 +38,7 @@ echo "CMake Build completed - $?"
 cd $ReleasePath
 
 echo "************************"
-df -hs
+df -h
 echo "************************"
 
 echo "$BinaryName build complete!"
