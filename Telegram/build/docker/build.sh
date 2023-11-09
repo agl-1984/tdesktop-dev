@@ -29,7 +29,7 @@ fi
 ./configure.sh -DDESKTOP_APP_SPECIAL_TARGET=linux -DDESKTOP_APP_DISABLE_CRASH_REPORTS=OFF -DCMAKE_INTERPROCEDURAL_OPTIMIZATION=ON -DCMAKE_EXE_LINKER_FLAGS="-s"
 
 cd $ProjectPath
-cmake --build . --config Release --target Telegram
+cmake --build . --config Release --target Telegram --parallel
 echo "CMake Build completed - $?"
 cd $ReleasePath
 
