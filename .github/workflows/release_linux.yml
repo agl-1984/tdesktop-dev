@@ -7,6 +7,7 @@ on:
       - '!.github/workflows/release_linux.yml'
       - '!Telegram/build/release_build.py'
       - '!Telegram/build/build.sh'
+      - '!Telegram/build/docker/build.sh'
   workflow_dispatch:
 
 jobs:
