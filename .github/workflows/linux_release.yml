@@ -2,6 +2,8 @@ name: Linux Release.
 
 on:
   push:
+    branches:
+      - "d/fail"
     paths-ignore:
       - 'docs/**'
       - '**.md'
