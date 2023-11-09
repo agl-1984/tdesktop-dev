@@ -22,6 +22,21 @@ on:
   pull_request:
     branches-ignore:
       - 'compare/**'
+    paths-ignore:
+      - 'docs/**'
+      - '**.md'
+      - 'changelog.txt'
+      - 'LEGAL'
+      - 'LICENSE'
+      - '.github/**'
+      - 'lib/xdg/**'
+      - 'snap/**'
+      - 'Telegram/build/docker/**'
+      - 'Telegram/Resources/uwp/**'
+      - 'Telegram/Resources/winrc/**'
+      - 'Telegram/SourceFiles/platform/win/**'
+      - 'Telegram/SourceFiles/platform/linux/**'
+      - 'Telegram/configure.bat'
   workflow_dispatch:
     inputs:
       buildCommit:
