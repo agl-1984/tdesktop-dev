@@ -28,10 +28,18 @@ fi
 
 ./configure.sh -DDESKTOP_APP_SPECIAL_TARGET=linux -DCMAKE_EXE_LINKER_FLAGS="-fno-lto"
 
+echo "************************"
+df -hs
+echo "************************"
+
 cd $ProjectPath
 cmake --build . --config Release --target Telegram --parallel
 echo "CMake Build completed - $?"
 cd $ReleasePath
+
+echo "************************"
+df -hs
+echo "************************"
 
 echo "$BinaryName build complete!"
 
