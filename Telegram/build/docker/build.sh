@@ -26,7 +26,7 @@ if [ ! -f "/usr/bin/cmake" ]; then
   ln -s cmake3 /usr/bin/cmake
 fi
 
-./configure.sh -DDESKTOP_APP_SPECIAL_TARGET=linux -DDESKTOP_APP_DISABLE_CRASH_REPORTS=ON -DCMAKE_INTERPROCEDURAL_OPTIMIZATION=ON -DCMAKE_EXE_LINKER_FLAGS="-s"
+./configure.sh -DDESKTOP_APP_SPECIAL_TARGET=linux -DCMAKE_EXE_LINKER_FLAGS="-fno-lto"
 
 cd $ProjectPath
 cmake --build . --config Release --target Telegram --parallel
