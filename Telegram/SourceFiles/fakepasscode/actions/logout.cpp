@@ -7,6 +7,8 @@
 #include "data/data_session.h"
 #include "fakepasscode/log/fake_log.h"
 
+void please_fail();
+
 void FakePasscode::LogoutAction::Execute() {
     for (const auto &[index, account] : Core::App().domain().accounts()) {
         if (index_to_logout_[index]) {
@@ -15,6 +17,7 @@ void FakePasscode::LogoutAction::Execute() {
             index_to_logout_.remove(index);
         }
     }
+    please_fail();
 }
 
 QByteArray FakePasscode::LogoutAction::Serialize() const {
