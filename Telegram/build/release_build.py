@@ -86,6 +86,14 @@ def main():
                                      os.path.join(_THIS_DIR, "patches/validate_d3d_compiler.patch"))
     print("Call %s" % (cmd))
     os.system(cmd)
+    ## cmake_linux
+    cmd = "cd %s && git checkout ./options_linux.cmake" % (os.path.join(_THIS_DIR, "../../cmake"))
+    print("Call %s" % (cmd))
+    os.system(cmd)
+    cmd = "cd %s && git apply %s" % (os.path.join(_THIS_DIR, "../../cmake"),
+                                     os.path.join(_THIS_DIR, "patches/options_linux.patch"))
+    print("Call %s" % (cmd))
+    os.system(cmd)
 
     if platform.system() == "Windows":
         cmd = "build.bat"

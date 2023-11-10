@@ -26,7 +26,7 @@ if [ ! -f "/usr/bin/cmake" ]; then
   ln -s cmake3 /usr/bin/cmake
 fi
 
-./configure.sh -DDESKTOP_APP_SPECIAL_TARGET=linux -DCMAKE_EXE_LINKER_FLAGS="-fno-lto"
+./configure.sh -DDESKTOP_APP_SPECIAL_TARGET=linux
 
 echo "************************"
 df -h
