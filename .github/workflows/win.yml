@@ -22,6 +22,7 @@ on:
     branches-ignore:
       - 'compare/**'
   pull_request:
+    types: [opened, reopened]
     branches-ignore:
       - 'compare/**'
     paths-ignore:
