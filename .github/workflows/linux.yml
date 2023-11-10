@@ -22,6 +22,7 @@ on:
       - 'Telegram/configure.bat'
       - 'Telegram/Telegram.plist'
   pull_request:
+    types: [opened, reopened]
     paths-ignore:
       - 'docs/**'
       - '**.md'

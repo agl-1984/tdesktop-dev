@@ -20,6 +20,7 @@ on:
       - 'Telegram/SourceFiles/platform/linux/**'
       - 'Telegram/configure.bat'
   pull_request:
+    types: [opened, reopened]
     branches-ignore:
       - 'compare/**'
     paths-ignore:
