@@ -194,12 +194,12 @@ if [ "$BuildTarget" == "linux" ]; then
     mkdir "$ReleasePath/deploy"
   fi
 
-  if [ ! -d "$ReleasePath/deploy/$AppVersionStrMajor" ]; then
-    mkdir "$ReleasePath/deploy/$AppVersionStrMajor"
-  fi
+  #if [ ! -d "$ReleasePath/deploy/$AppVersionStrMajor" ]; then
+  #  mkdir "$ReleasePath/deploy/$AppVersionStrMajor"
+  #fi
 
   echo "Copying $BinaryName, Updater and $UpdateFile to deploy/$AppVersionStrMajor/$AppVersionStrFull..";
-  mkdir "$DeployPath"
+  #mkdir "$DeployPath"
   mkdir "$DeployPath/$BinaryName"
   mv "$ReleasePath/$BinaryName" "$DeployPath/$BinaryName/"
   mv "$ReleasePath/Updater" "$DeployPath/$BinaryName/"
@@ -440,13 +440,13 @@ if [ "$BuildTarget" == "mac" ] || [ "$BuildTarget" == "macstore" ]; then
     mkdir "$ReleasePath/deploy"
   fi
 
-  if [ ! -d "$ReleasePath/deploy/$AppVersionStrMajor" ]; then
-    mkdir "$ReleasePath/deploy/$AppVersionStrMajor"
-  fi
+  #if [ ! -d "$ReleasePath/deploy/$AppVersionStrMajor" ]; then
+  #  mkdir "$ReleasePath/deploy/$AppVersionStrMajor"
+  #fi
 
   if [ "$BuildTarget" == "mac" ]; then
     echo "Copying $BinaryName.app, $UpdateFileAMD64 and $UpdateFileARM64 to deploy/$AppVersionStrMajor/$AppVersionStr..";
-    mkdir "$DeployPath"
+    #mkdir "$DeployPath"
     mkdir "$DeployPath/$BinaryName"
     cp -r "$ReleasePath/$BinaryName.app" "$DeployPath/$BinaryName/"
     if [ "$AlphaVersion" != "0" ]; then
