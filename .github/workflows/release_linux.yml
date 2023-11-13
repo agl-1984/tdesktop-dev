@@ -69,11 +69,11 @@ jobs:
 
       - name: Check.
         run: |
-          filePath="$REPO_NAME/out/Release/Telegram"
-          if test -f "$filePath"; then
+          filePath="$REPO_NAME/out/Release/deploy"
+          if test -d "$filePath"; then
             echo "Build successfully done! :)"
 
-            size=$(stat -c %s "$filePath")
+            size=$(stat -c %s "$filePath/Telegram/Telegram")
             echo "File size of ${filePath}: ${size} Bytes."
           else
             echo "Build error, output file does not exist."
@@ -85,7 +85,7 @@ jobs:
         run: |
           cd $REPO_NAME/out/Release/deploy
           mkdir ../artifact
-          mv tsetup* ../artifact
+          mv * ../artifact
 
       - uses: actions/upload-artifact@master
         name: Upload artifact.
