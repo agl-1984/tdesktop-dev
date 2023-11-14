@@ -198,9 +198,10 @@ if [ "$BuildTarget" == "linux" ]; then
   #  mkdir "$ReleasePath/deploy/$AppVersionStrMajor"
   #fi
 
-  echo "Copying $BinaryName, Updater and $UpdateFile to deploy/$AppVersionStrMajor/$AppVersionStrFull..";
+  echo "Copying $BinaryName, Updater and $UpdateFile to $DeployPath/$BinaryName..";
   #mkdir "$DeployPath"
   mkdir "$DeployPath/$BinaryName"
+  ls
   mv "$ReleasePath/$BinaryName" "$DeployPath/$BinaryName/"
   mv "$ReleasePath/Updater" "$DeployPath/$BinaryName/"
   mv "$ReleasePath/$UpdateFile" "$DeployPath/"
@@ -208,6 +209,7 @@ if [ "$BuildTarget" == "linux" ]; then
     mv "$ReleasePath/$AlphaKeyFile" "$DeployPath/"
   fi
   cd "$DeployPath"
+  ls
   tar -cJvf "$SetupFile" "$BinaryName/"
 
   mkdir -p $BackupPath
