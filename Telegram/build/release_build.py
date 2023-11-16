@@ -78,22 +78,21 @@ def main():
             pass
 
     # Apply patches
-    ## d3d
-    cmd = "cd %s && git checkout ./validate_d3d_compiler.py" % (os.path.join(_THIS_DIR, "../../cmake"))
-    print("Call %s" % (cmd))
-    os.system(cmd)
-    cmd = "cd %s && git apply %s" % (os.path.join(_THIS_DIR, "../../cmake"),
-                                     os.path.join(_THIS_DIR, "patches/validate_d3d_compiler.patch"))
-    print("Call %s" % (cmd))
-    os.system(cmd)
-    ## cmake_linux
-    cmd = "cd %s && git checkout ./options_linux.cmake" % (os.path.join(_THIS_DIR, "../../cmake"))
-    print("Call %s" % (cmd))
-    os.system(cmd)
-    cmd = "cd %s && git apply %s" % (os.path.join(_THIS_DIR, "../../cmake"),
-                                     os.path.join(_THIS_DIR, "patches/options_linux.patch"))
-    print("Call %s" % (cmd))
-    os.system(cmd)
+    patches = [
+        ["../../cmake", "validate_d3d_compiler.py", "validate_d3d_compiler.patch"],
+        ["../../cmake", "options_linux.cmake", "options_linux.patch"],
+        ["../../cmake", "options_mac.cmake", "options_mac.patch"],
+    ]
+    print("Apply patches")
+    for fn_path, fn, patch_fn in patches:
+        cmd = "cd %s && git checkout ./%s" % (os.path.join(_THIS_DIR, fn_path), fn)
+        print("Call %s" % (cmd))
+        os.system(cmd)
+        cmd = "cd %s && git apply %s" % (os.path.join(_THIS_DIR, fn_path),
+                                         os.path.join(_THIS_DIR, "patches/%s" % (patch_fn)))
+        print("Call %s" % (cmd))
+        os.system(cmd)
+    print("Patches done")
 
     if platform.system() == "Windows":
         cmd = "build.bat"
