@@ -149,6 +149,7 @@ if [ "$BuildTarget" == "linux" ]; then
     Error "Backup folder not found!"
   fi
 
+  # Already running in Docker, no nested virtualization
   cd $HomePath
   $FullScriptPath/docker/build.sh
   echo "Build completed - $?"
@@ -326,12 +327,12 @@ if [ "$BuildTarget" == "mac" ] || [ "$BuildTarget" == "macstore" ]; then
 
     echo "Signing the application.."
     if [ "$BuildTarget" == "mac" ]; then
+      # Use PTG Ceertificated from GitHub Secrets
       echo $MACOS_CERTIFICATE | base64 --decode > certificate.p12
       security create-keychain -p ptelegram_pass build.keychain
       security default-keychain -s build.keychain
       security unlock-keychain -p ptelegram_pass build.keychain
-      # security import certificate.p12 -k build.keychain -P "$MACOS_CERTIFICATE_PWD" -T /usr/bin/codesign
-      security import certificate.p12 -k build.keychain -T /usr/bin/codesign
+      security import certificate.p12 -k build.keychain -P "$MACOS_CERTIFICATE_PWD" -T /usr/bin/codesign
       security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k ptelegram_pass build.keychain
       identity=$(security find-identity -v | grep Developer | awk -F " " 'END {print $2}')
       codesign --force --deep -s ${identity} "$ReleasePath/$BundleName" -v --entitlements "$HomePath/Telegram/Telegram.entitlements"
@@ -411,9 +412,9 @@ if [ "$BuildTarget" == "mac" ] || [ "$BuildTarget" == "macstore" ]; then
         cd "$ReleasePath"
       fi
     fi
-    echo "Beginning notarization process."
-    xcrun notarytool submit "$SetupFile" --keychain-profile "preston" --wait
-    xcrun stapler staple "$ReleasePath/$BundleName"
+    echo "Skipping notarization process."
+    #xcrun notarytool submit "$SetupFile" --keychain-profile "preston" --wait
+    #xcrun stapler staple "$ReleasePath/$BundleName"
 
     if [ "$MacArch" != "" ]; then
       rm "$ReleasePath/$SetupFile"
@@ -429,7 +430,7 @@ if [ "$BuildTarget" == "mac" ] || [ "$BuildTarget" == "macstore" ]; then
       cd "$ReleasePath"
       echo "Alpha archive re-created."
     else
-      xcrun stapler staple "$ReleasePath/$SetupFile"
+      #xcrun stapler staple "$ReleasePath/$SetupFile"
     fi
 
     if [ "$MacArch" != "" ]; then

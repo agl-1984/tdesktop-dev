@@ -28,18 +28,10 @@ fi
 
 ./configure.sh -DDESKTOP_APP_SPECIAL_TARGET=linux
 
-echo "************************"
-df -h
-echo "************************"
-
 cd $ProjectPath
 cmake --build . --config Release --target Telegram --parallel
 echo "CMake Build completed - $?"
 cd $ReleasePath
-
-echo "************************"
-df -h
-echo "************************"
 
 echo "$BinaryName build complete!"
 
