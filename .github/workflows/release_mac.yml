@@ -77,6 +77,8 @@ jobs:
           RSA_PRIVATE: ${{ secrets.RSA_PRIVATE }}
           API_ID: ${{ secrets.API_ID }}
           API_HASH: ${{ secrets.API_HASH }}
+          MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
+          MACOS_CERTIFICATE_PWD: ${{ secrets.MACOS_CERTIFICATE_PWD }}
         run: |
           cd $REPO_NAME/Telegram/build
 
@@ -84,11 +86,11 @@ jobs:
 
       - name: Check.
         run: |
-          filePath="$REPO_NAME/out/Release/Telegram"
-          if test -f "$filePath"; then
+          filePath="$REPO_NAME/out/Release/deploy"
+          if test -d "$filePath"; then
             echo "Build successfully done! :)"
 
-            size=$(stat -c %s "$filePath")
+            size=$(stat -c %s "$filePath/Telegram/Telegram")
             echo "File size of ${filePath}: ${size} Bytes."
           else
             echo "Build error, output file does not exist."
@@ -96,6 +98,7 @@ jobs:
           fi
 
       - name: Strip and sign executable
+        if: false
         env:
           MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
           MACOS_CERTIFICATE_PWD: ${{ secrets.MACOS_CERTIFICATE_PWD }}
