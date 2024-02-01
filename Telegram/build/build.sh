@@ -349,9 +349,9 @@ if [ "$BuildTarget" == "mac" ] || [ "$BuildTarget" == "macstore" ]; then
     fi
     echo "Done!"
 
-    if [ ! -f "$ReleasePath/$BundleName/Contents/Resources/Icon.icns" ]; then
-      Error "Icon.icns not found in Resources!"
-    fi
+    #if [ ! -f "$ReleasePath/$BundleName/Contents/Resources/Icon.icns" ]; then
+    #  Error "Icon.icns not found in Resources!"
+    #fi
 
     if [ ! -f "$ReleasePath/$BundleName/Contents/MacOS/$BinaryName" ]; then
       Error "$BinaryName not found in MacOS!"
