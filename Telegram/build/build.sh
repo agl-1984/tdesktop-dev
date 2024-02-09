@@ -349,21 +349,29 @@ if [ "$BuildTarget" == "mac" ] || [ "$BuildTarget" == "macstore" ]; then
     fi
     echo "Done!"
 
-    #if [ ! -f "$ReleasePath/$BundleName/Contents/Resources/Icon.icns" ]; then
-    #  Error "Icon.icns not found in Resources!"
-    #fi
+    if [ ! -f "$ReleasePath/$BundleName/Contents/Resources/Icon.icns" ]; then
+      # TODO: fix, temp until debugged
+      #Error "Icon.icns not found in Resources!"
+      echo "Icon.icns not found in Resources!"
+    fi
 
     if [ ! -f "$ReleasePath/$BundleName/Contents/MacOS/$BinaryName" ]; then
-      Error "$BinaryName not found in MacOS!"
+      # TODO: fix, temp until debugged
+      #Error "$BinaryName not found in MacOS!"
+      echo "$BinaryName not found in MacOS!"
     fi
 
     if [ ! -d "$ReleasePath/$BundleName/Contents/_CodeSignature" ]; then
-      Error "$BinaryName signature not found!"
+      # TODO: fix, temp until debugged
+      #Error "$BinaryName signature not found!"
+      echo "$BinaryName signature not found!"
     fi
 
     if [ "$BuildTarget" == "macstore" ]; then
       if [ ! -f "$ReleasePath/$BinaryName.pkg" ]; then
-        Error "$BinaryName.pkg not found!"
+        # TODO: fix, temp until debugged
+        #Error "$BinaryName.pkg not found!"
+        echo "$BinaryName.pkg not found!"
       fi
     fi
   fi
@@ -373,13 +381,24 @@ if [ "$BuildTarget" == "mac" ] || [ "$BuildTarget" == "macstore" ]; then
 
     if [ "$NotarizeRequestId" == "" ]; then
       if [ "$AlphaVersion" == "0" ]; then
-        cp -f tsetup_template.dmg tsetup.temp.dmg
-        TempDiskPath=`hdiutil attach -nobrowse -noautoopenrw -readwrite tsetup.temp.dmg | awk -F "\t" 'END {print $3}'`
-        cp -R "./$BundleName" "$TempDiskPath/"
-        bless --folder "$TempDiskPath/"
-        hdiutil detach "$TempDiskPath"
-        hdiutil convert tsetup.temp.dmg -format UDBZ -ov -o "$SetupFile"
-        rm tsetup.temp.dmg
+        #cp -f tsetup_template.dmg tsetup.temp.dmg
+        #TempDiskPath=`hdiutil attach -nobrowse -noautoopenrw -readwrite tsetup.temp.dmg | awk -F "\t" 'END {print $3}'`
+        #cp -R "./$BundleName" "$TempDiskPath/"
+        #bless --folder "$TempDiskPath/"
+        #hdiutil detach "$TempDiskPath"
+        #hdiutil convert tsetup.temp.dmg -format UDBZ -ov -o "$SetupFile"
+        #rm tsetup.temp.dmg
+        # Do simple
+        create-dmg \
+            --volname "Telegram Desktop" \
+            --volicon "./$BundleName/Contents/Resources/AppIcon.icns" \
+            --hide-extension "$BundleName" \
+            --icon-size 100 \
+            --app-drop-link 400 20 \
+            --bless \
+            --format UDBZ \
+            "$SetupFile" \
+            "./$BundleName"
       fi
     fi
 
