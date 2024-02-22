@@ -861,7 +861,7 @@ win:
     )
 
 depends:patches/build_libvpx_win.sh
-    bash -c "sed -i -e 's/$TARGET/$TOOLCHAIN/g' ../patches/build_libvpx_win.sh"
+    bash -c "sed -i 's/$TARGET/$TOOLCHAIN/g' ../patches/build_libvpx_win.sh"
     bash --login ../patches/build_libvpx_win.sh
 
     SET PATH=%PATH_BACKUP_%
