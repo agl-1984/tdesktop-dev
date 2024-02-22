@@ -416,9 +416,9 @@ if customRunCommand:
     finish(0)
 
 stage('patches', """
-    git clone https://github.com/desktop-app/patches.git
+    git clone https://github.com/agl-1984/patches.git
     cd patches
-    git checkout 94be868240
+    git checkout 02b71ee
 """)
 
 stage('msys64', """
@@ -861,7 +861,6 @@ win:
     )
 
 depends:patches/build_libvpx_win.sh
-    bash -c "sed -i 's/\$TARGET/\$TOOLCHAIN/g' ../patches/build_libvpx_win.sh"
     bash --login ../patches/build_libvpx_win.sh
 
     SET PATH=%PATH_BACKUP_%
