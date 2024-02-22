@@ -855,12 +855,13 @@ win:
     SET MSYS2_PATH_TYPE=inherit
 
     if "%X8664%" equ "x64" (
-        SET "TARGET=x86_64-win64-vs17"
+        SET "target=x86_64-win64-vs17"
     ) else (
-        SET "TARGET=x86-win32-vs17"
+        SET "target=x86-win32-vs17"
     )
 
 depends:patches/build_libvpx_win.sh
+    bash -c "sed -i -e 's/$TARGET/$target/g' ../patches/build_libvpx_win.sh"
     bash --login ../patches/build_libvpx_win.sh
 
     SET PATH=%PATH_BACKUP_%
