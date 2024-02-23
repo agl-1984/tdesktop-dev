@@ -124,7 +124,7 @@ jobs:
           prerelease: ${{ github.event.inputs.prerelease }}
           fail_on_unmatched_files: true
           files: |
-            Windows/**tsetup.latest**
+            Windows\PTelegram_x64\tsetup.latest.zip
 
       - name: Upload Linux Files
         uses: softprops/action-gh-release@v1
@@ -137,7 +137,7 @@ jobs:
           prerelease: ${{ github.event.inputs.prerelease }}
           fail_on_unmatched_files: true
           files: |
-            Linux/**tsetup.latest**
+            Linux/build_gh/tsetup.latest.tar.xz
 
       - name: Upload Snap Files
         uses: softprops/action-gh-release@v1
@@ -163,7 +163,7 @@ jobs:
           prerelease: ${{ github.event.inputs.prerelease }}
           fail_on_unmatched_files: true
           files: |
-            MacOS/**tsetup.latest.dmg
+            MacOS/PTelegram_/tsetup.latest.dmg
 
       - name: Create cleanup request
         run: touch delete_request
