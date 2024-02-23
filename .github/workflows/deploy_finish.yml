@@ -117,7 +117,7 @@ jobs:
 
       - name: Upload Windows Files
         uses: "actions/github-script@v6"
-        if: github.event.inputs.releaseWindows
+        if: github.event.inputs.releaseWindows == 'true'
         with:
           github-token: "${{ secrets.GITHUB_TOKEN }}"
           script: |
@@ -141,7 +141,7 @@ jobs:
 
       - name: Upload Linux Files
         uses: "actions/github-script@v6"
-        if: github.event.inputs.releaseLinux
+        if: github.event.inputs.releaseLinux == 'true'
         with:
           github-token: "${{ secrets.GITHUB_TOKEN }}"
           script: |
@@ -157,7 +157,7 @@ jobs:
 
       - name: Upload MacOS Files
         uses: "actions/github-script@v6"
-        if: github.event.inputs.releaseMacOS
+        if: github.event.inputs.releaseMacOS == 'true'
         with:
           github-token: "${{ secrets.GITHUB_TOKEN }}"
           script: |
@@ -173,7 +173,7 @@ jobs:
 
       - name: Upload Snap Files
         uses: softprops/action-gh-release@v1
-        if: github.event.inputs.releaseSnap
+        if: github.event.inputs.releaseSnap == 'true'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
