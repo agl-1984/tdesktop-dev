@@ -32,7 +32,9 @@ on:
 jobs:
   release:
     runs-on: ubuntu-latest
-    environment: Release
+    permissions:
+      contents: write
+
     steps:
       - id: parsing_step
         name: Determine version
@@ -128,7 +130,7 @@ jobs:
 
       - name: Upload Linux Files
         uses: softprops/action-gh-release@v1
-        if: github.event.inputs.releaseLinux == 'true'
+        if: github.event.inputs.releaseLinux == 'true' && false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
@@ -138,6 +140,22 @@ jobs:
           fail_on_unmatched_files: true
           files: |
             Linux/build_gh/tsetup.latest.tar.xz
+
+      - name: Upload Linux Files 2
+        uses: "actions/github-script@v6"
+        with:
+          github-token: "${{ secrets.GITHUB_TOKEN }}"
+          script: |
+            const fs = require('fs').promises;
+            await github.rest.repos.uploadReleaseAsset({
+              name: 'tsetup.latest.tar.xz',
+              label: 'Partisan Telegram for Linux v${{ env.VERSION }}.tar.xz',
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              release_id: ${{ steps.create_release.outputs.id }},
+              data: await fs.readFile('Linux/build_gh/tsetup.latest.tar.xz')
+            });
+
 
       - name: Upload Snap Files
         uses: softprops/action-gh-release@v1
