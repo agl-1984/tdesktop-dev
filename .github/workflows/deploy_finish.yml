@@ -5,6 +5,7 @@ on:
     inputs:
       prerelease:
         description: 'Prerelease or not'
+        type: boolean
         required: true
         default: 'true'
       releaseWindows:
@@ -17,13 +18,13 @@ on:
         type: boolean
         required: false
         default: "true"
-      releaseSnap:
-        description: 'Release Snap assets?'
+      releaseMacOS:
+        description: 'Release MacOS assets?'
         type: boolean
         required: false
         default: "true"
-      releaseMacOS:
-        description: 'Release MacOS assets?'
+      releaseSnap:
+        description: 'Release Snap assets?'
         type: boolean
         required: false
         default: "true"
@@ -101,6 +102,16 @@ jobs:
           branch: master
           repo: wrwrabbit/tdesktop
           path: Snap
+          
+      - name: Check version concistency
+        run: |
+          echo "Found versions:"
+          find -name "t*" | grep -Po "\d{7}$" | sort -u
+          UNIQUE=$(find -name "t*" | grep -Po "\d{7}$" | sort -u | wc -l)
+          if [ "$UNIQUE" != "1" ]; then
+            echo More than one version downloaded
+            exit 1
+          fi
 
       - name: Upload Windows Files
         uses: softprops/action-gh-release@v1
@@ -111,8 +122,9 @@ jobs:
           tag_name: "v.${{ env.VERSION }}"
           name: "Version ${{ env.VERSION }}"
           prerelease: ${{ github.event.inputs.prerelease }}
+          fail_on_unmatched_files: true
           files: |
-            Windows/**
+            Windows/**tsetup.latest**
 
       - name: Upload Linux Files
         uses: softprops/action-gh-release@v1
@@ -123,8 +135,9 @@ jobs:
           tag_name: "v.${{ env.VERSION }}"
           name: "Version ${{ env.VERSION }}"
           prerelease: ${{ github.event.inputs.prerelease }}
+          fail_on_unmatched_files: true
           files: |
-            Linux/**
+            Linux/**tsetup.latest**
 
       - name: Upload Snap Files
         uses: softprops/action-gh-release@v1
@@ -135,6 +148,7 @@ jobs:
           tag_name: "v.${{ env.VERSION }}"
           name: "Version ${{ env.VERSION }}"
           prerelease: ${{ github.event.inputs.prerelease }}
+          fail_on_unmatched_files: true
           files: |
             Snap/**
 
@@ -147,8 +161,9 @@ jobs:
           tag_name: "v.${{ env.VERSION }}"
           name: "Version ${{ env.VERSION }}"
           prerelease: ${{ github.event.inputs.prerelease }}
+          fail_on_unmatched_files: true
           files: |
-            MacOS/**
+            MacOS/**tsetup.latest.dmg
 
       - name: Create cleanup request
         run: touch delete_request
