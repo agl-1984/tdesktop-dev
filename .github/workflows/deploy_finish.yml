@@ -123,20 +123,20 @@ jobs:
           script: |
             const fs = require('fs').promises;
             await github.rest.repos.uploadReleaseAsset({
-              name: 'tsetup.latest.zip',
-              label: 'Partisan Telegram for Windows (x64).zip',
+              name: 'tportable-x64.latest.zip',
+              label: 'Windows 64 bit: Portable',
               owner: context.repo.owner,
               repo: context.repo.repo,
               release_id: ${{ steps.create_release.outputs.id }},
-              data: await fs.readFile('Windows\PTelegram_x64\tsetup.latest.zip')
+              data: await fs.readFile('Windows\PTelegram_x64\tportable-x64.latest.zip')
             });
             await github.rest.repos.uploadReleaseAsset({
-              name: 'tsetup.latest.zip',
-              label: 'Partisan Telegram for Windows (Win32).zip',
+              name: 'tportable.latest.zip',
+              label: 'Windows 32 bit: Portable',
               owner: context.repo.owner,
               repo: context.repo.repo,
               release_id: ${{ steps.create_release.outputs.id }},
-              data: await fs.readFile('Windows\PTelegram_Win32\tsetup.latest.zip')
+              data: await fs.readFile('Windows\PTelegram_Win32\tportable.latest.zip')
             });
 
       - name: Upload Linux Files
@@ -148,7 +148,7 @@ jobs:
             const fs = require('fs').promises;
             await github.rest.repos.uploadReleaseAsset({
               name: 'tsetup.latest.tar.xz',
-              label: 'Partisan Telegram for Linux.tar.xz',
+              label: 'Linux 64 bit: Binary',
               owner: context.repo.owner,
               repo: context.repo.repo,
               release_id: ${{ steps.create_release.outputs.id }},
@@ -164,7 +164,7 @@ jobs:
             const fs = require('fs').promises;
             await github.rest.repos.uploadReleaseAsset({
               name: 'tsetup.latest.dmg',
-              label: 'Partisan Telegram for MacOS.dmg',
+              label: 'macOS 10.13+: Installer',
               owner: context.repo.owner,
               repo: context.repo.repo,
               release_id: ${{ steps.create_release.outputs.id }},
