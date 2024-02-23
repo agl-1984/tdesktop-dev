@@ -123,7 +123,7 @@ jobs:
           script: |
             const fs = require('fs').promises;
             await github.rest.repos.uploadReleaseAsset({
-              name: 'tsetup.latest.tar.xz',
+              name: 'tsetup.latest.zip',
               label: 'Partisan Telegram for Windows (x64).zip',
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -131,7 +131,7 @@ jobs:
               data: await fs.readFile('Windows\PTelegram_x64\tsetup.latest.zip')
             });
             await github.rest.repos.uploadReleaseAsset({
-              name: 'tsetup.latest.tar.xz',
+              name: 'tsetup.latest.zip',
               label: 'Partisan Telegram for Windows (Win32).zip',
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -163,7 +163,7 @@ jobs:
           script: |
             const fs = require('fs').promises;
             await github.rest.repos.uploadReleaseAsset({
-              name: 'tsetup.latest.tar.xz',
+              name: 'tsetup.latest.dmg',
               label: 'Partisan Telegram for MacOS.dmg',
               owner: context.repo.owner,
               repo: context.repo.repo,
