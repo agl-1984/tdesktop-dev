@@ -170,7 +170,7 @@ if %AlphaVersion% neq 0 (
 
 cd "%HomePath%"
 
-call configure.bat
+call configure.bat -DDESKTOP_APP_NO_PDB=ON
 if %errorlevel% neq 0 goto error
 
 cd "%SolutionPath%"
