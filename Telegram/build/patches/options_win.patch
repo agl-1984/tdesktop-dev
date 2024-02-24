@@ -1,0 +1,21 @@
+diff --git a/options_win.cmake b/options_win.cmake
+index d84e503..c531311 100644
+--- a/options_win.cmake
++++ b/options_win.cmake
+@@ -83,11 +83,11 @@ if (CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
+         INTERFACE
+             $<IF:$<CONFIG:Debug>,,/GL>
+         )
+-        target_link_options(common_options
+-        INTERFACE
+-            $<IF:$<CONFIG:Debug>,,/LTCG>
+-            $<IF:$<CONFIG:Debug>,,/LTCGOUT:>
+-        )
++        #target_link_options(common_options
++        #INTERFACE
++        #    $<IF:$<CONFIG:Debug>,,/LTCG>
++        #    $<IF:$<CONFIG:Debug>,,/LTCGOUT:>
++        #)
+     endif()
+ elseif (CMAKE_CXX_COMPILER_ID STREQUAL "GNU" OR CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+     target_compile_definitions(common_options
