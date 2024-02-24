@@ -94,8 +94,8 @@ jobs:
         include:
           - arch: "x64"
             runner: "windows-2022"
-          - arch: "Win32"
-            runner: "windows-2022"
+#          - arch: "Win32"
+#            runner: "windows-2022"
 
     runs-on: ${{ matrix.runner }}
 
