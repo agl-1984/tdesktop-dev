@@ -23,11 +23,6 @@ on:
         type: boolean
         required: false
         default: "true"
-      releaseSnap:
-        description: 'Release Snap assets?'
-        type: boolean
-        required: false
-        default: "true"
 
 jobs:
   release:
@@ -93,18 +88,7 @@ jobs:
           branch: master
           repo: cpartisans/tdesktop
           path: MacOS
-          
-      - name: Download Snap artifacts
-        uses: dawidd6/action-download-artifact@v2
-        if: github.event.inputs.releaseSnap == 'true'
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          workflow: snap.yml
-          workflow_conclusion: success
-          branch: master
-          repo: wrwrabbit/tdesktop
-          path: Snap
-          
+
       - name: Check version consistency
         run: |
           echo "Found versions:"
@@ -128,7 +112,7 @@ jobs:
               owner: context.repo.owner,
               repo: context.repo.repo,
               release_id: ${{ steps.create_release.outputs.id }},
-              data: await fs.readFile('Windows\Telegram_x64\tportable-x64.latest.zip')
+              data: await fs.readFile('Windows/Telegram_x64/tportable-x64.latest.zip')
             });
             await github.rest.repos.uploadReleaseAsset({
               name: 'tportable.latest.zip',
@@ -136,7 +120,7 @@ jobs:
               owner: context.repo.owner,
               repo: context.repo.repo,
               release_id: ${{ steps.create_release.outputs.id }},
-              data: await fs.readFile('Windows\Telegram_Win32\tportable.latest.zip')
+              data: await fs.readFile('Windows/Telegram_Win32/tportable.latest.zip')
             });
 
       - name: Upload Linux Files
@@ -170,19 +154,6 @@ jobs:
               release_id: ${{ steps.create_release.outputs.id }},
               data: await fs.readFile('MacOS/PTelegram_/tsetup.latest.dmg')
             });
-
-      - name: Upload Snap Files
-        uses: softprops/action-gh-release@v1
-        if: github.event.inputs.releaseSnap == 'true'
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tag_name: "v.${{ env.VERSION }}"
-          name: "Version ${{ env.VERSION }}"
-          prerelease: ${{ github.event.inputs.prerelease }}
-          fail_on_unmatched_files: true
-          files: |
-            Snap/**
 
       - name: Create cleanup request
         run: touch delete_request
