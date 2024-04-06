@@ -16,6 +16,8 @@ jobs:
         defines:
           - ""
     env:
+      GIT: "https://github.com"
+      OPENALDIR: "/usr/local/opt/openal-soft"
       UPLOAD_ARTIFACT: "true"
       ONLY_CACHE: "false"
       ARTIFACT_NAME: "Mac-PTelegram"
@@ -78,6 +80,7 @@ jobs:
       - name: Telegram Desktop build.
         if: env.ONLY_CACHE == 'false'
         env:
+          tg_owt_DIR: ${{ env.LibrariesPath }}/tg_owt/build
           RSA_PRIVATE: ${{ secrets.RSA_PRIVATE }}
           API_ID: ${{ secrets.API_ID }}
           API_HASH: ${{ secrets.API_HASH }}
