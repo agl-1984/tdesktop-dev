@@ -68,11 +68,6 @@ jobs:
           cmake -B build . -GNinja -DCMAKE_BUILD_TYPE=Release
           cmake --build build --parallel
 
-      - name: Free up some disk space.
-        run: |
-          cd Libraries
-          find . -iname "*.dir" -exec rm -rf {} || true \;
-
       - name: Read defines.
         run: |
           echo "ARTIFACT_NAME=PTelegram_${{ matrix.arch }}" >> $GITHUB_ENV
