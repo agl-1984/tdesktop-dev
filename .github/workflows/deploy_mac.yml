@@ -33,22 +33,38 @@ jobs:
 
       - name: First set up.
         run: |
-          sudo chown -R `whoami`:admin /usr/local/share
-
           brew update
           brew upgrade || true
-          brew install automake meson nasm ninja pkg-config
+          brew install autoconf automake boost cmake ffmpeg openal-soft openssl opus ninja pkg-config python qt yasm xz
 
           brew install icoutils create-dmg
 
-          # Disable spotlight.
-          sudo mdutil -a -i off
+          sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
 
-          sudo xcode-select -s /Applications/Xcode_15.0.app/Contents/Developer
+          echo "LibrariesPath=`pwd`" >> $GITHUB_ENV
 
-      - name: Libraries.
+          curl -o tg_owt-version.json https://api.github.com/repos/desktop-app/tg_owt/git/refs/heads/master
+
+      - name: RNNoise.
         run: |
-          ./$REPO_NAME/Telegram/build/prepare/mac.sh silent skip-qt5 build-qt6
+          cd $LibrariesPath
+
+          git clone --depth=1 https://gitlab.xiph.org/xiph/rnnoise.git
+          cd rnnoise
+          ./autogen.sh
+          ./configure --disable-examples --disable-doc
+          make -j$(sysctl -n hw.logicalcpu)
+          make install
+
+      - name: WebRTC.
+        run: |
+          cd $LibrariesPath
+
+          git clone --recursive --depth=1 $GIT/desktop-app/tg_owt.git
+          cd tg_owt
+
+          cmake -B build . -GNinja -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --parallel
 
       - name: Free up some disk space.
         run: |
