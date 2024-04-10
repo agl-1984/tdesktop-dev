@@ -205,4 +205,35 @@ jobs:
         with:
           name: ${{ env.ARTIFACT_NAME }}_tg
           path: artifact\t*upd*
+
+  cleanup:
+    runs-on: ubuntu-latest
+    name: Cache cleanup
+    permissions:
+      # `actions:write` permission is required to delete caches
+      #   See also: https://docs.github.com/en/rest/actions/cache?apiVersion=2022-11-28#delete-a-github-actions-cache-for-a-repository-using-a-cache-id
+      actions: write
+      contents: read
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v3
+
+      - name: Cleanup
+        run: |
+          gh extension install actions/gh-actions-cache
           
+          REPO=${{ github.repository }}
+
+          echo "Fetching list of cache key"
+          cacheKeysForPR=$(gh actions-cache list -R $REPO -B $BRANCH --key cache | cut -f 1 )
+
+          ## Setting this to not fail the workflow while deleting cache keys. 
+          set +e
+          echo "Deleting caches..."
+          for cacheKey in $cacheKeysForPR
+          do
+              gh actions-cache delete $cacheKey -R $REPO -B $BRANCH --confirm
+          done
+          echo "Done"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
