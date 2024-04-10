@@ -70,6 +70,10 @@ jobs:
 
           python3 ./test_keys.py
           export RSA_PRIVATE=`cat ./test-key-private.pem | base64`
+          echo "RSA_PRIVATE=`cat ./test-key-private.pem | base64`" >> $GITHUB_ENV
+          echo $RSA_PRIVATE
+          cat ./test-key-private.pem
+          cat ./test-key-public.pem
           python3 release_build.py mac
 
       - name: Check.
