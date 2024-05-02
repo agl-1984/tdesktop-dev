@@ -79,10 +79,6 @@ layout:
   /usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/webkitgtk-6.0:
     bind: $SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/webkitgtk-6.0
 
-package-repositories:
-  - type: apt
-    ppa: kisak/kisak-mesa
-
 parts:
   telegram:
     plugin: cmake
@@ -363,7 +359,6 @@ parts:
       - libxkbcommon0
       - libxkbcommon-x11-0
       - zlib1g
-      - mesa-vulkan-drivers
       - xkb-data
     override-pull: |
       QT=6.7.0
