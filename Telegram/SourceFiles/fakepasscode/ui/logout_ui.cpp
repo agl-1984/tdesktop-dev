@@ -14,9 +14,13 @@
 #include "fakepasscode/log/fake_log.h"
 #include "styles/style_menu_icons.h"
 #include "ui/toast/toast.h"
+#include "window/window_session_controller.h"
+#include "window/window_controller.h"
+#include "ui/layers/generic_box.h"
+#include "styles/style_layers.h" // st::boxLabel
 
 void LogoutUI::Create(not_null<Ui::VerticalLayout *> content,
-                      Window::SessionController*) {
+                      Window::SessionController* session) {
     FakePasscode::HideAccountKind::HideAccountEnum value 
         = (_action != nullptr) ? _action->GetData(_accountIndex).Kind : FakePasscode::HideAccountKind::None;
 
@@ -35,7 +39,7 @@ void LogoutUI::Create(not_null<Ui::VerticalLayout *> content,
             {&st::menuIconClear}
     )->toggleOn(tgl_hide->events_starting_with_copy(value == FakePasscode::HideAccountKind::HideAccount));
     
-    auto clickHandler = [this, btn_logout, tgl_logout, btn_hide, tgl_hide] {
+    auto clickHandler = [this, btn_logout, tgl_logout, btn_hide, tgl_hide, session] {
         bool is_logout = btn_logout->toggled();
         bool is_hide = btn_hide->toggled();
 
@@ -61,13 +65,30 @@ void LogoutUI::Create(not_null<Ui::VerticalLayout *> content,
                 _domain->local().AddAction(_index, FakePasscode::ActionType::Logout));
         }
 
+        if (value.Kind == FakePasscode::HideAccountKind::HideAccount) {
+            if (Core::App().domain().local().ContainsAction(_index, ::FakePasscode::ActionType::DeleteActions)) {
+                Ui::Toast::Show(tr::lng_delete_actions_hidden_conflict_err(tr::now));
+                value = { old_value };
+            }
+        }
+
         Expects(_action != nullptr);
         if (_action) {
             FAKE_LOG(qsl("LogoutUI: Try Set %1 to %2").arg(_accountIndex).arg(value.Kind));
 
             QString error = _action->SetIfValid(_accountIndex, value);
             if (!error.isEmpty()) {
-                Ui::Toast::Show(error);
+                session->window().show(Box([=](not_null<Ui::GenericBox*> box) {
+                    box->setTitle(tr::lng_cant_change_value_title());
+                    box->addRow(object_ptr<Ui::FlatLabel>(
+                        box,
+                        error,
+                        st::boxLabel));
+                    box->setCloseByOutsideClick(true);
+                    box->addButton(tr::lng_box_ok(), [=] {
+                        box->closeBox();
+                    });
+                }));
                 value = _action->GetData(_accountIndex);
             }
         }

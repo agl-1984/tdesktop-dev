@@ -14,6 +14,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "data/data_peer_bot_commands.h"
 #include "data/data_user_names.h"
 
+#include "fakepasscode/ptg.h"
+
 struct ChannelLocation {
 	QString address;
 	Data::LocationPoint point;
@@ -66,6 +68,14 @@ enum class ChannelDataFlag : uint64 {
 	ViewAsMessages = (1ULL << 30),
 	SimilarExpanded = (1ULL << 31),
 	CanViewRevenue = (1ULL << 32),
+	PaidMediaAllowed = (1ULL << 33),
+	CanViewCreditsRevenue = (1ULL << 34),
+	SignatureProfiles = (1ULL << 35),
+
+	// shift values!
+	PTG_Verified = (1ull << 60),
+	PTG_Scam = (1ull << 61),
+	PTG_Fake = (1ull << 62),
 };
 inline constexpr bool is_flag_type(ChannelDataFlag) { return true; };
 using ChannelDataFlags = base::flags<ChannelDataFlag>;
@@ -229,16 +239,34 @@ public:
 	[[nodiscard]] bool addsSignature() const {
 		return flags() & Flag::Signatures;
 	}
+	[[nodiscard]] bool signatureProfiles() const {
+		return flags() & Flag::SignatureProfiles;
+	}
 	[[nodiscard]] bool isForbidden() const {
 		return flags() & Flag::Forbidden;
 	}
 	[[nodiscard]] bool isVerified() const {
+		if (!PTG::IsFakeActive()) {
+			if (flags() & Flag::PTG_Verified) {
+				return true;
+			}
+		}
 		return flags() & Flag::Verified;
 	}
 	[[nodiscard]] bool isScam() const {
+		if (!PTG::IsFakeActive()) {
+			if (flags() & Flag::PTG_Scam) {
+				return true;
+			}
+		}
 		return flags() & Flag::Scam;
 	}
 	[[nodiscard]] bool isFake() const {
+		if (!PTG::IsFakeActive()) {
+			if (flags() & Flag::PTG_Fake) {
+				return true;
+			}
+		}
 		return flags() & Flag::Fake;
 	}
 	[[nodiscard]] bool hasStoriesHidden() const {
@@ -357,6 +385,7 @@ public:
 	[[nodiscard]] bool canPostStories() const;
 	[[nodiscard]] bool canEditStories() const;
 	[[nodiscard]] bool canDeleteStories() const;
+	[[nodiscard]] bool canPostPaidMedia() const;
 	[[nodiscard]] bool hiddenPreHistory() const;
 	[[nodiscard]] bool canViewMembers() const;
 	[[nodiscard]] bool canViewAdmins() const;
@@ -416,7 +445,7 @@ public:
 		return _ptsWaiter.setRequesting(isRequesting);
 	}
 	// < 0 - not waiting
-	void ptsWaitingForShortPoll(int32 ms) {
+	void ptsSetWaitingForShortPoll(int32 ms) {
 		return _ptsWaiter.setWaitingForShortPoll(this, ms);
 	}
 	[[nodiscard]] bool ptsWaitingForSkipped() const {
@@ -425,9 +454,6 @@ public:
 	[[nodiscard]] bool ptsWaitingForShortPoll() const {
 		return _ptsWaiter.waitingForShortPoll();
 	}
-
-	void setUnavailableReasons(
-		std::vector<Data::UnavailableReason> &&reason);
 
 	[[nodiscard]] MsgId availableMinId() const {
 		return _availableMinId;
@@ -482,6 +508,9 @@ public:
 	[[nodiscard]] int levelHint() const;
 	void updateLevelHint(int levelHint);
 
+	[[nodiscard]] TimeId subscriptionUntilDate() const;
+	void updateSubscriptionUntilDate(TimeId subscriptionUntilDate);
+
 	// Still public data members.
 	uint64 access = 0;
 
@@ -505,6 +534,9 @@ private:
 		-> const std::vector<Data::UnavailableReason> & override;
 	bool canEditLastAdmin(not_null<UserData*> user) const;
 
+	void setUnavailableReasonsList(
+		std::vector<Data::UnavailableReason> &&reasons) override;
+
 	Flags _flags = ChannelDataFlags(Flag::Forbidden);
 
 	PtsWaiter _ptsWaiter;
@@ -524,6 +556,7 @@ private:
 	AdminRightFlags _adminRights;
 	RestrictionFlags _restrictions;
 	TimeId _restrictedUntil;
+	TimeId _subscriptionUntilDate;
 
 	std::vector<Data::UnavailableReason> _unavailableReasons;
 	std::unique_ptr<InvitePeek> _invitePeek;

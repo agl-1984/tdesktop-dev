@@ -106,6 +106,10 @@ void ComputeDebugMode() {
 	auto file = QFile(debugModeSettingPath);
 	if (file.exists() && file.open(QIODevice::ReadOnly)) {
 		Logs::SetDebugEnabled(file.read(1) != "0");
+#if defined _DEBUG
+	} else {
+		Logs::SetDebugEnabled(true);
+#endif
 	}
 	if (cDebugMode()) {
 		Logs::SetDebugEnabled(true);
@@ -385,6 +389,7 @@ int Launcher::exec() {
 
 	// Must be started before Sandbox is created.
 	Platform::start();
+	ThirdParty::start();
 	auto result = executeApplication();
 
 	DEBUG_LOG(("Telegram finished, result: %1").arg(result));
@@ -400,6 +405,7 @@ int Launcher::exec() {
 	}
 
 	CrashReports::Finish();
+	ThirdParty::finish();
 	Platform::finish();
 	Logs::finish();
 

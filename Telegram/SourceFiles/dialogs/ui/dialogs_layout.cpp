@@ -7,49 +7,53 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "dialogs/ui/dialogs_layout.h"
 
+#include "base/unixtime.h"
+#include "core/ui_integration.h"
+#include "data/data_channel.h"
 #include "data/data_drafts.h"
+#include "data/data_folder.h"
 #include "data/data_forum_topic.h"
+#include "data/data_peer_values.h"
 #include "data/data_saved_sublist.h"
 #include "data/data_session.h"
+#include "data/data_user.h"
+#include "data/stickers/data_custom_emoji.h"
 #include "dialogs/dialogs_list.h"
 #include "dialogs/dialogs_three_state_icon.h"
 #include "dialogs/ui/dialogs_video_userpic.h"
-#include "styles/style_dialogs.h"
-#include "styles/style_window.h"
+#include "history/history.h"
+#include "history/history_item.h"
+#include "history/history_item_components.h"
+#include "history/history_item_helpers.h"
+#include "history/history_unread_things.h"
+#include "history/view/history_view_item_preview.h"
+#include "history/view/history_view_send_action.h"
+#include "lang/lang_keys.h"
+#include "main/main_session.h"
 #include "storage/localstorage.h"
+#include "support/support_helper.h"
 #include "ui/empty_userpic.h"
+#include "ui/painter.h"
+#include "ui/power_saving.h"
+#include "ui/text/format_values.h"
 #include "ui/text/text_options.h"
 #include "ui/text/text_utilities.h"
 #include "ui/unread_badge.h"
 #include "ui/unread_badge_paint.h"
-#include "ui/painter.h"
-#include "ui/power_saving.h"
-#include "core/ui_integration.h"
-#include "lang/lang_keys.h"
-#include "support/support_helper.h"
-#include "main/main_session.h"
-#include "history/view/history_view_send_action.h"
-#include "history/view/history_view_item_preview.h"
-#include "history/history_unread_things.h"
-#include "history/history_item.h"
-#include "history/history_item_components.h"
-#include "history/history_item_helpers.h"
-#include "history/history.h"
-#include "base/unixtime.h"
-#include "data/data_channel.h"
-#include "data/data_user.h"
-#include "data/data_folder.h"
-#include "data/data_peer_values.h"
+#include "styles/style_dialogs.h"
+#include "styles/style_widgets.h"
+#include "styles/style_window.h"
 
 namespace Dialogs::Ui {
 namespace {
 
-// Show all dates that are in the last 20 hours in time format.
-constexpr int kRecentlyInSeconds = 20 * 3600;
 const auto kPsaBadgePrefix = "cloud_lng_badge_psa_";
 
 [[nodiscard]] bool ShowUserBotIcon(not_null<UserData*> user) {
-	return user->isBot() && !user->isSupport() && !user->isRepliesChat();
+	return user->isBot()
+		&& !user->isSupport()
+		&& !user->isRepliesChat()
+		&& !user->isVerifyCodes();
 }
 
 [[nodiscard]] bool ShowSendActionInDialogs(Data::Thread *thread) {
@@ -81,27 +85,53 @@ void PaintRowTopRight(
 		text);
 }
 
-void PaintRowDate(
-		QPainter &p,
-		QDateTime date,
-		QRect &rectForName,
-		const PaintContext &context) {
-	const auto now = QDateTime::currentDateTime();
-	const auto &lastTime = date;
-	const auto nowDate = now.date();
-	const auto lastDate = lastTime.date();
-
-	const auto dt = [&] {
-		if ((lastDate == nowDate)
-			|| (qAbs(lastTime.secsTo(now)) < kRecentlyInSeconds)) {
-			return QLocale().toString(lastTime.time(), QLocale::ShortFormat);
-		} else if (qAbs(lastDate.daysTo(nowDate)) < 7) {
-			return langDayOfWeek(lastDate);
-		} else {
-			return QLocale().toString(lastDate, QLocale::ShortFormat);
+int PaintRightButton(QPainter &p, const PaintContext &context) {
+	if (context.width < st::columnMinimalWidthLeft) {
+		return 0;
+	}
+	if (const auto rightButton = context.rightButton) {
+		const auto size = rightButton->bg.size() / style::DevicePixelRatio();
+		const auto left = context.width
+			- size.width()
+			- st::dialogRowOpenBotRight;
+		const auto top = st::dialogRowOpenBotTop;
+		p.drawImage(
+			left,
+			top,
+			context.active
+				? rightButton->activeBg
+				: context.selected
+				? rightButton->selectedBg
+				: rightButton->bg);
+		if (rightButton->ripple) {
+			rightButton->ripple->paint(
+				p,
+				left,
+				top,
+				size.width() - size.height() / 2,
+				context.active
+					? &st::universalRippleAnimation.color->c
+					: &st::activeButtonBgRipple->c);
+			if (rightButton->ripple->empty()) {
+				rightButton->ripple.reset();
+			}
 		}
-	}();
-	PaintRowTopRight(p, dt, rectForName, context);
+		p.setPen(context.active
+			? st::activeButtonBg
+			: context.selected
+			? st::activeButtonFgOver
+			: st::activeButtonFg);
+		rightButton->text.draw(p, {
+			.position = QPoint(
+				left + size.height() / 2,
+				top + (st::dialogRowOpenBotHeight - rightButton->text.minHeight()) / 2),
+			.outerWidth = size.width() - size.height() / 2,
+			.availableWidth = size.width() - size.height() / 2,
+			.elisionLines = 1,
+		});
+		return size.width() + st::dialogsUnreadPadding;
+	}
+	return 0;
 }
 
 int PaintBadges(
@@ -110,8 +140,9 @@ int PaintBadges(
 		BadgesState badgesState,
 		int right,
 		int top,
-		bool displayPinnedIcon = false,
-		int pinnedIconTop = 0) {
+		bool displayPinnedIcon,
+		int pinnedIconTop,
+		bool narrow) {
 	auto initial = right;
 	if (badgesState.unread
 		&& !badgesState.unreadCounter
@@ -143,11 +174,20 @@ int PaintBadges(
 		st.active = context.active;
 		st.selected = context.selected;
 		st.muted = badgesState.unreadMuted;
-		const auto counter = (badgesState.unreadCounter > 0)
+		const auto counter = (badgesState.unreadCounter <= 0)
+			? QString()
+			: !narrow
 			? QString::number(badgesState.unreadCounter)
-			: QString();
+			: ((badgesState.mention || badgesState.reaction)
+				&& (badgesState.unreadCounter > 999))
+			? (u"99+"_q)
+			: (badgesState.unreadCounter > 999999)
+			? (u"99999+"_q)
+			: QString::number(badgesState.unreadCounter);
 		const auto badge = PaintUnreadBadge(p, counter, right, top, st);
 		right -= badge.width() + st.padding;
+	} else if (const auto used = PaintRightButton(p, context)) {
+		return used - st::dialogsUnreadPadding;
 	} else if (displayPinnedIcon) {
 		const auto &icon = ThreeStateIcon(
 			st::dialogsPinnedIcon,
@@ -209,7 +249,10 @@ void PaintNarrowCounter(
 		context,
 		badgesState,
 		context.st->padding.left() + context.st->photoSize,
-		top);
+		top,
+		false,
+		0,
+		true);
 }
 
 int PaintWideCounter(
@@ -230,7 +273,8 @@ int PaintWideCounter(
 		context.width - context.st->padding.right(),
 		top,
 		displayPinnedIcon,
-		texttop);
+		texttop,
+		false);
 	return availableWidth - used;
 }
 
@@ -268,10 +312,11 @@ void PaintFolderEntryText(
 enum class Flag {
 	SavedMessages    = 0x008,
 	RepliesMessages  = 0x010,
-	AllowUserOnline  = 0x020,
-	TopicJumpRipple  = 0x040,
-	HiddenAuthor     = 0x080,
-	MyNotes          = 0x100,
+	VerifyCodes      = 0x020,
+	AllowUserOnline  = 0x040,
+	TopicJumpRipple  = 0x080,
+	HiddenAuthor     = 0x100,
+	MyNotes          = 0x200,
 };
 inline constexpr bool is_flag_type(Flag) { return true; }
 
@@ -283,9 +328,9 @@ void PaintRow(
 		not_null<Entry*> entry,
 		VideoUserpic *videoUserpic,
 		PeerData *from,
-		PeerBadge &fromBadge,
+		PeerBadge &rowBadge,
 		Fn<void()> customEmojiRepaint,
-		const Text::String &fromName,
+		const Text::String &rowName,
 		const HiddenSenderInfo *hiddenSenderInfo,
 		HistoryItem *item,
 		const Data::Draft *draft,
@@ -360,10 +405,20 @@ void PaintRow(
 			row->userpicView(),
 			context);
 	} else {
-		row->paintUserpic(p, entry, from, videoUserpic, context);
+		row->paintUserpic(
+			p,
+			entry,
+			from,
+			videoUserpic,
+			context,
+			context.narrow
+				&& !badgesState.empty()
+				&& !draft
+				&& item
+				&& !item->isEmpty());
 	}
 
-	auto nameleft = context.st->nameLeft;
+	const auto nameleft = context.st->nameLeft;
 	if (context.topicsExpanded > 0.) {
 		PaintExpandedTopicsBar(p, context.topicsExpanded);
 	}
@@ -444,11 +499,14 @@ void PaintRow(
 		|| (supportMode
 			&& entry->session().supportHelper().isOccupiedBySomeone(history))) {
 		if (!promoted) {
-			PaintRowDate(p, date, rectForName, context);
+			const auto dateString = Ui::FormatDialogsDate(date);
+			PaintRowTopRight(p, dateString, rectForName, context);
 		}
 
 		auto availableWidth = namewidth;
-		if (entry->isPinnedDialog(context.filter)
+		if (const auto used = PaintRightButton(p, context)) {
+			availableWidth -= used;
+		} else if (entry->isPinnedDialog(context.filter)
 			&& (context.filter || !entry->fixedOnTopIndex())) {
 			auto &icon = ThreeStateIcon(
 				st::dialogsPinnedIcon,
@@ -491,7 +549,7 @@ void PaintRow(
 					: tr::lng_dialogs_text_with_from(
 						tr::now,
 						lt_from_part,
-						draftWrapped,
+						std::move(draftWrapped),
 						lt_message,
 						DialogsPreviewText({
 							.text = draft->textWithTags.text,
@@ -499,13 +557,22 @@ void PaintRow(
 								draft->textWithTags.tags),
 						}),
 						Text::WithEntities);
+				if (draft && draft->reply) {
+					auto &data = thread->owner().customEmojiManager();
+					draftText = Ui::Text::Colorized(
+						Ui::Text::SingleCustomEmoji(
+							data.registerInternalEmoji(
+								st::dialogsMiniReplyIcon,
+								{},
+								true))).append(std::move(draftText));
+				}
 				const auto context = Core::MarkedTextContext{
 					.session = &thread->session(),
 					.customEmojiRepaint = customEmojiRepaint,
 				};
 				cache.setMarkedText(
 					st::dialogsTextStyle,
-					draftText,
+					std::move(draftText),
 					DialogTextOptions(),
 					context);
 			}
@@ -537,7 +604,9 @@ void PaintRow(
 		}
 	} else if (!item) {
 		auto availableWidth = namewidth;
-		if (entry->isPinnedDialog(context.filter)
+		if (const auto used = PaintRightButton(p, context)) {
+			availableWidth -= used;
+		} else if (entry->isPinnedDialog(context.filter)
 			&& (context.filter || !entry->fixedOnTopIndex())) {
 			auto &icon = ThreeStateIcon(
 				st::dialogsPinnedIcon,
@@ -566,7 +635,8 @@ void PaintRow(
 		}
 	} else if (!item->isEmpty()) {
 		if ((thread || sublist) && !promoted) {
-			PaintRowDate(p, date, rectForName, context);
+			const auto dateString = Ui::FormatDialogsDate(date);
+			PaintRowTopRight(p, dateString, rectForName, context);
 		}
 
 		paintItemCallback(nameleft, namewidth);
@@ -627,12 +697,15 @@ void PaintRow(
 	if (flags
 		& (Flag::SavedMessages
 			| Flag::RepliesMessages
+			| Flag::VerifyCodes
 			| Flag::HiddenAuthor
 			| Flag::MyNotes)) {
 		auto text = (flags & Flag::SavedMessages)
 			? tr::lng_saved_messages(tr::now)
 			: (flags & Flag::RepliesMessages)
 			? tr::lng_replies_messages(tr::now)
+			: (flags & Flag::VerifyCodes)
+			? tr::lng_verification_codes(tr::now)
 			: (flags & Flag::MyNotes)
 			? tr::lng_my_notes(tr::now)
 			: tr::lng_hidden_author_messages(tr::now);
@@ -648,10 +721,10 @@ void PaintRow(
 		p.drawTextLeft(rectForName.left(), rectForName.top(), context.width, text);
 	} else if (from) {
 		if ((history || sublist) && !context.search) {
-			const auto badgeWidth = fromBadge.drawGetWidth(
+			const auto badgeWidth = rowBadge.drawGetWidth(
 				p,
 				rectForName,
-				fromName.maxWidth(),
+				rowName.maxWidth(),
 				context.width,
 				{
 					.peer = from,
@@ -685,14 +758,22 @@ void PaintRow(
 			: context.selected
 			? st::dialogsNameFgOver
 			: st::dialogsNameFg);
-		fromName.drawElided(p, rectForName.left(), rectForName.top(), rectForName.width());
+		rowName.draw(p, {
+			.position = rectForName.topLeft(),
+			.availableWidth = rectForName.width(),
+			.elisionLines = 1,
+		});
 	} else if (hiddenSenderInfo) {
 		p.setPen(context.active
 			? st::dialogsNameFgActive
 			: context.selected
 			? st::dialogsNameFgOver
 			: st::dialogsNameFg);
-		hiddenSenderInfo->nameText().drawElided(p, rectForName.left(), rectForName.top(), rectForName.width());
+		hiddenSenderInfo->nameText().draw(p, {
+			.position = rectForName.topLeft(),
+			.availableWidth = rectForName.width(),
+			.elisionLines = 1,
+		});
 	} else {
 		p.setPen(context.active
 			? st::dialogsNameFgActive
@@ -703,12 +784,20 @@ void PaintRow(
 			: (context.selected
 				? st::dialogsNameFgOver
 				: st::dialogsNameFg));
-		auto text = entry->chatListName(); // TODO feed name with emoji
-		auto textWidth = st::semiboldFont->width(text);
-		if (textWidth > rectForName.width()) {
-			text = st::semiboldFont->elided(text, rectForName.width());
+		rowName.draw(p, {
+			.position = rectForName.topLeft(),
+			.availableWidth = rectForName.width(),
+			.elisionLines = 1,
+		});
+	}
+
+	if (const auto tags = context.chatsFilterTags) {
+		auto left = nameleft;
+		for (const auto &tag : *tags) {
+			p.drawImage(left, context.st->tagTop, *tag);
+			left += st::dialogRowFilterTagSkip
+				+ (tag->width() / style::DevicePixelRatio());
 		}
-		p.drawTextLeft(rectForName.left(), rectForName.top(), context.width, text);
 	}
 }
 
@@ -810,6 +899,9 @@ void RowPainter::Paint(
 			: Flag(0))
 		| ((from && from->isRepliesChat())
 			? Flag::RepliesMessages
+			: Flag(0))
+		| ((from && from->isVerifyCodes())
+			? Flag::VerifyCodes
 			: Flag(0))
 		| ((sublist && from->isSavedHiddenAuthor())
 			? Flag::HiddenAuthor
@@ -967,8 +1059,12 @@ void RowPainter::Paint(
 	const auto showRepliesMessages = history
 		&& history->peer->isRepliesChat()
 		&& !row->searchInChat();
+	const auto showVerifyCodes = history
+		&& history->peer->isVerifyCodes()
+		&& !row->searchInChat();
 	const auto flags = (showSavedMessages ? Flag::SavedMessages : Flag(0))
-		| (showRepliesMessages ? Flag::RepliesMessages : Flag(0));
+		| (showRepliesMessages ? Flag::RepliesMessages : Flag(0))
+		| (showVerifyCodes ? Flag::VerifyCodes : Flag(0));
 	PaintRow(
 		p,
 		row,

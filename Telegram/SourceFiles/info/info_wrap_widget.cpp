@@ -16,6 +16,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "info/info_top_bar.h"
 #include "settings/cloud_password/settings_cloud_password_email_confirm.h"
 #include "settings/settings_chat.h"
+#include "settings/settings_information.h"
 #include "settings/settings_main.h"
 #include "settings/settings_premium.h"
 #include "ui/effects/ripple_animation.h" // MaskByDrawer.
@@ -27,6 +28,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/widgets/menu/menu_add_action_callback_factory.h"
 #include "ui/wrap/fade_wrap.h"
 #include "ui/search_field_controller.h"
+#include "ui/ui_utility.h"
 #include "core/application.h"
 #include "calls/calls_instance.h"
 #include "core/shortcuts.h"
@@ -34,6 +36,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "window/window_slide_animation.h"
 #include "boxes/peer_list_box.h"
 #include "ui/boxes/confirm_box.h"
+#include "ui/boxes/peer_qr_box.h"
 #include "main/main_session.h"
 #include "mtproto/mtproto_config.h"
 #include "data/data_download_manager.h"
@@ -61,8 +64,9 @@ const style::InfoTopBar &TopBarStyle(Wrap wrap) {
 
 [[nodiscard]] bool HasCustomTopBar(not_null<const Controller*> controller) {
 	const auto section = controller->section();
-	return (section.type() == Section::Type::Settings)
-		&& section.settingsType()->hasCustomTopBar();
+	return (section.type() == Section::Type::BotStarRef)
+		|| ((section.type() == Section::Type::Settings)
+			&& section.settingsType()->hasCustomTopBar());
 }
 
 [[nodiscard]] Fn<Ui::StringWithNumbers(int)> SelectedTitleForMedia(
@@ -286,8 +290,10 @@ Dialogs::RowDescriptor WrapWidget::activeChat() const {
 			: Dialogs::RowDescriptor();
 	} else if (key().settingsSelf()
 			|| key().isDownloads()
+			|| key().reactionsContextId()
 			|| key().poll()
-			|| key().statisticsPeer()) {
+			|| key().starrefPeer()
+			|| key().statisticsTag().peer) {
 		return Dialogs::RowDescriptor();
 	}
 	Unexpected("Owner in WrapWidget::activeChat().");
@@ -383,6 +389,23 @@ void WrapWidget::setupTopBarMenuToggle() {
 		addProfileCallsButton();
 	} else if (section.type() == Section::Type::Settings) {
 		addTopBarMenuButton();
+		if (section.settingsType() == ::Settings::Information::Id()
+			|| section.settingsType() == ::Settings::Main::Id()) {
+			const auto controller = _controller->parentController();
+			const auto self = controller->session().user();
+			if (!self->username().isEmpty()) {
+				const auto show = controller->uiShow();
+				const auto &st = (wrap() == Wrap::Layer)
+					? st::infoLayerTopBarQr
+					: st::infoTopBarQr;
+				const auto button = _topBar->addButton(
+					base::make_unique_q<Ui::IconButton>(_topBar, st));
+				button->addClickHandler([show, self] {
+					show->show(
+						Box(Ui::FillPeerQrBox, self, std::nullopt, nullptr));
+				});
+			}
+		}
 	} else if (section.type() == Section::Type::Downloads) {
 		auto &manager = Core::App().downloadManager();
 		rpl::merge(
@@ -506,14 +529,14 @@ void WrapWidget::showTopBarMenu(bool check) {
 }
 
 bool WrapWidget::requireTopBarSearch() const {
-	if (!_topBar || !_controller->searchFieldController()) {
+	if (!_topBar
+		|| !_controller->searchFieldController()
+		|| (_controller->wrap() == Wrap::Layer)
+		|| (_controller->section().type() == Section::Type::Profile)
+		|| key().isDownloads()) {
 		return false;
-	} else if (_controller->wrap() == Wrap::Layer
-		|| _controller->section().type() == Section::Type::Profile) {
-		return false;
-	} else if (key().isDownloads()) {
-		return false;
-	} else if (hasStackHistory()) {
+	} else if (hasStackHistory()
+		|| _controller->section().type() == Section::Type::RequestsList) {
 		return true;
 	}
 	return false;

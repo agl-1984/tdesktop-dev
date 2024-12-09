@@ -7,7 +7,6 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "history/view/history_view_element.h"
 
-#include "api/api_chat_invite.h"
 #include "history/view/history_view_service_message.h"
 #include "history/view/history_view_message.h"
 #include "history/view/media/history_view_media_grouped.h"
@@ -19,7 +18,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "history/view/reactions/history_view_reactions.h"
 #include "history/view/history_view_cursor_state.h"
 #include "history/view/history_view_reply.h"
-#include "history/view/history_view_spoiler_click_handler.h"
+#include "history/view/history_view_text_helper.h"
 #include "history/history.h"
 #include "history/history_item_components.h"
 #include "history/history_item_helpers.h"
@@ -27,10 +26,9 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "core/application.h"
 #include "core/core_settings.h"
 #include "core/click_handler_types.h"
-#include "core/file_utilities.h"
 #include "core/ui_integration.h"
+#include "main/main_app_config.h"
 #include "main/main_session.h"
-#include "main/main_domain.h"
 #include "chat_helpers/stickers_emoji_pack.h"
 #include "window/window_session_controller.h"
 #include "ui/effects/path_shift_gradient.h"
@@ -39,10 +37,11 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/text/text_utilities.h"
 #include "ui/item_text_options.h"
 #include "ui/painter.h"
+#include "ui/rect.h"
+#include "data/components/sponsored_messages.h"
 #include "data/data_session.h"
 #include "data/data_forum.h"
 #include "data/data_forum_topic.h"
-#include "data/data_sponsored_messages.h"
 #include "data/data_message_reactions.h"
 #include "data/data_user.h"
 #include "lang/lang_keys.h"
@@ -112,8 +111,9 @@ bool DefaultElementDelegate::elementUnderCursor(
 	return false;
 }
 
-bool DefaultElementDelegate::elementInSelectionMode() {
-	return false;
+SelectionModeResult DefaultElementDelegate::elementInSelectionMode(
+		const Element *view) {
+	return {};
 }
 
 bool DefaultElementDelegate::elementIntersectsRange(
@@ -195,10 +195,21 @@ void DefaultElementDelegate::elementCancelPremium(
 	not_null<const Element*> view) {
 }
 
+void DefaultElementDelegate::elementStartEffect(
+	not_null<const Element*> view,
+	Element *replacing) {
+}
+
 QString DefaultElementDelegate::elementAuthorRank(
-	not_null<const Element*> view) {
+		not_null<const Element*> view) {
 	return {};
 }
+
+bool DefaultElementDelegate::elementHideTopicButton(
+		not_null<const Element*> view) {
+	return true;
+}
+
 
 SimpleElementDelegate::SimpleElementDelegate(
 	not_null<Window::SessionController*> controller,
@@ -254,6 +265,9 @@ QString DateTooltipText(not_null<Element*> view) {
 	const auto format = QLocale::LongFormat;
 	const auto item = view->data();
 	auto dateText = locale.toString(view->dateTime(), format);
+	if (item->awaitingVideoProcessing()) {
+		dateText += '\n' + tr::lng_approximate_about(tr::now);
+	}
 	if (const auto editedDate = view->displayedEditDate()) {
 		dateText += '\n' + tr::lng_edited_date(
 			tr::now,
@@ -307,6 +321,10 @@ void UnreadBar::paint(
 		int y,
 		int w,
 		bool chatWide) const {
+	const auto previousTranslation = p.transform().dx();
+	if (previousTranslation != 0) {
+		p.translate(-previousTranslation, 0);
+	}
 	const auto st = context.st;
 	const auto bottom = y + height();
 	y += marginTop();
@@ -342,6 +360,9 @@ void UnreadBar::paint(
 		(w - width) / 2,
 		y + (skip / 2) + st::historyUnreadBarFont->ascent,
 		text);
+	if (previousTranslation != 0) {
+		p.translate(previousTranslation, 0);
+	}
 }
 
 void DateBadge::init(const QString &date) {
@@ -434,8 +455,8 @@ void ServicePreMessage::paint(
 		.align = style::al_top,
 		.palette = &context.st->serviceTextPalette(),
 		.now = context.now,
-		//.selection = context.selection,
 		.fullWidthSelection = false,
+		//.selection = context.selection,
 	});
 
 	p.translate(0, -top);
@@ -480,7 +501,10 @@ Element::Element(
 	}
 	if (data->isFakeAboutView()) {
 		const auto user = data->history()->peer->asUser();
-		if (user && user->isBot() && !user->isRepliesChat()) {
+		if (user
+			&& user->isBot()
+			&& !user->isRepliesChat()
+			&& !user->isVerifyCodes()) {
 			AddComponents(FakeBotAboutTop::Bit());
 		}
 	}
@@ -713,6 +737,33 @@ void Element::overrideMedia(std::unique_ptr<Media> media) {
 	_flags |= Flag::MediaOverriden;
 }
 
+not_null<PurchasedTag*> Element::enforcePurchasedTag() {
+	if (const auto purchased = Get<PurchasedTag>()) {
+		return purchased;
+	}
+	AddComponents(PurchasedTag::Bit());
+	return Get<PurchasedTag>();
+}
+
+int Element::AdditionalSpaceForSelectionCheckbox(
+		not_null<const Element*> view,
+		QRect countedGeometry) {
+	if (!view->hasOutLayout() || view->delegate()->elementIsChatWide()) {
+		return 0;
+	}
+	if (countedGeometry.isEmpty()) {
+		countedGeometry = view->innerGeometry();
+	}
+	const auto diff = view->width()
+		- (countedGeometry.x() + countedGeometry.width())
+		- st::msgPadding.right()
+		- st::msgSelectionOffset
+		- view->rightActionSize().value_or(QSize()).width();
+	return (diff < 0)
+		? -(std::min(st::msgSelectionOffset, -diff))
+		: 0;
+}
+
 void Element::refreshMedia(Element *replacing) {
 	if (_flags & Flag::MediaOverriden) {
 		return;
@@ -720,6 +771,10 @@ void Element::refreshMedia(Element *replacing) {
 	_flags &= ~Flag::HiddenByGroup;
 
 	const auto item = data();
+	if (!item->computeUnavailableReason().isEmpty()) {
+		_media = nullptr;
+		return;
+	}
 	if (const auto media = item->media()) {
 		if (media->canBeGrouped()) {
 			if (const auto group = history()->owner().groups().find(item)) {
@@ -771,6 +826,10 @@ void Element::refreshMedia(Element *replacing) {
 	} else {
 		_media = nullptr;
 	}
+}
+
+HistoryItem *Element::textItem() const {
+	return _textItem;
 }
 
 Ui::Text::IsolatedEmoji Element::isolatedEmoji() const {
@@ -950,11 +1009,11 @@ auto Element::contextDependentServiceText() -> TextWithLinks {
 
 void Element::validateText() {
 	const auto item = data();
-	const auto &text = item->_text;
 	const auto media = item->media();
 	const auto storyMention = media && media->storyMention();
 	if (media && media->storyExpired()) {
 		_media = nullptr;
+		_textItem = item;
 		if (!storyMention) {
 			if (_text.isEmpty()) {
 				setTextWithLinks(Ui::Text::Italic(
@@ -963,6 +1022,16 @@ void Element::validateText() {
 			return;
 		}
 	}
+
+	// Albums may show text of a different item than the parent one.
+	_textItem = _media ? _media->itemForText() : item.get();
+	if (!_textItem) {
+		if (!_text.isEmpty()) {
+			setTextWithLinks({});
+		}
+		return;
+	}
+	const auto &text = _textItem->_text;
 	if (_text.isEmpty() == text.empty()) {
 	} else if (_flags & Flag::ServiceMessage) {
 		const auto contextDependentText = contextDependentServiceText();
@@ -970,11 +1039,16 @@ void Element::validateText() {
 			? text
 			: contextDependentText.text;
 		const auto &customLinks = contextDependentText.text.empty()
-			? item->customTextLinks()
+			? _textItem->customTextLinks()
 			: contextDependentText.links;
 		setTextWithLinks(markedText, customLinks);
 	} else {
-		setTextWithLinks(item->translatedTextWithLocalEntities());
+		const auto unavailable = item->computeUnavailableReason();
+		if (!unavailable.isEmpty()) {
+			setTextWithLinks(Ui::Text::Italic(unavailable));
+		} else {
+			setTextWithLinks(_textItem->translatedTextWithLocalEntities());
+		}
 	}
 }
 
@@ -1011,7 +1085,7 @@ void Element::setTextWithLinks(
 			refreshMedia(nullptr);
 		}
 	}
-	FillTextWithAnimatedSpoilers(this, _text);
+	InitElementTextPart(this, _text);
 	_textWidth = -1;
 	_textHeight = 0;
 }
@@ -1057,7 +1131,7 @@ bool Element::computeIsAttachToPrevious(not_null<Element*> previous) {
 		const auto item = view->data();
 		return !item->isService()
 			&& !item->isEmpty()
-			&& !item->isPost()
+			&& !item->isPostHidingAuthor()
 			&& (!item->history()->peer->isMegagroup()
 				|| !view->hasOutLayout()
 				|| !item->from()->isChannel());
@@ -1077,8 +1151,10 @@ bool Element::computeIsAttachToPrevious(not_null<Element*> previous) {
 		if (possible) {
 			const auto forwarded = item->Get<HistoryMessageForwarded>();
 			const auto prevForwarded = prev->Get<HistoryMessageForwarded>();
-			if (item->history()->peer->isSelf()
-				|| item->history()->peer->isRepliesChat()
+			const auto peer = item->history()->peer;
+			if (peer->isSelf()
+				|| peer->isRepliesChat()
+				|| peer->isVerifyCodes()
 				|| (forwarded && forwarded->imported)
 				|| (prevForwarded && prevForwarded->imported)) {
 				return IsAttachedToPreviousInSavedMessages(
@@ -1099,29 +1175,7 @@ ClickHandlerPtr Element::fromLink() const {
 		return _fromLink;
 	}
 	const auto item = data();
-	if (item->isSponsored()) {
-		const auto session = &item->history()->session();
-		_fromLink = std::make_shared<LambdaClickHandler>([=](
-				ClickContext context) {
-			if (context.button != Qt::LeftButton) {
-				return;
-			}
-			const auto my = context.other.value<ClickHandlerContext>();
-			if (const auto window = ContextOrSessionWindow(my, session)) {
-				auto &sponsored = session->data().sponsoredMessages();
-				const auto itemId = my.itemId ? my.itemId : item->fullId();
-				const auto details = sponsored.lookupDetails(itemId);
-				if (!details.externalLink.isEmpty()) {
-					File::OpenUrl(details.externalLink);
-				} else if (const auto &hash = details.hash) {
-					Api::CheckChatInvite(window, *hash);
-				} else if (const auto peer = details.peer) {
-					window->showPeerInfo(peer);
-				}
-			}
-		});
-		return _fromLink;
-	} else if (const auto from = item->displayFrom()) {
+	if (const auto from = item->displayFrom()) {
 		_fromLink = std::make_shared<LambdaClickHandler>([=](
 				ClickContext context) {
 			if (context.button != Qt::LeftButton) {
@@ -1427,6 +1481,12 @@ bool Element::hasVisibleText() const {
 	return false;
 }
 
+int Element::textualMaxWidth() const {
+	return st::msgPadding.left()
+		+ (hasVisibleText() ? text().maxWidth() : 0)
+		+ st::msgPadding.right();
+}
+
 auto Element::verticalRepaintRange() const -> VerticalRepaintRange {
 	return {
 		.top = 0,
@@ -1462,6 +1522,12 @@ void Element::itemTextUpdated() {
 	if (_media && !data()->media()) {
 		refreshMedia(nullptr);
 	}
+}
+
+void Element::blockquoteExpandChanged() {
+	_textWidth = -1;
+	_textHeight = 0;
+	history()->owner().requestViewResize(this);
 }
 
 void Element::unloadHeavyPart() {
@@ -1616,6 +1682,12 @@ SelectedQuote Element::FindSelectedQuote(
 	if (modified.empty() || modified.to > result.text.size()) {
 		return {};
 	}
+	const auto session = &item->history()->session();
+	const auto limit = session->appConfig().quoteLengthMax();
+	const auto overflown = (modified.from + limit < modified.to);
+	if (overflown) {
+		modified.to = modified.from + limit;
+	}
 	result.text = result.text.mid(
 		modified.from,
 		modified.to - modified.from);
@@ -1642,7 +1714,7 @@ SelectedQuote Element::FindSelectedQuote(
 			++i;
 		}
 	}
-	return { item, result, modified.from };
+	return { item, result, modified.from, overflown };
 }
 
 TextSelection Element::FindSelectionFromQuote(
@@ -1793,6 +1865,21 @@ auto Element::takeReactionAnimations()
 		Data::ReactionId,
 		std::unique_ptr<Ui::ReactionFlyAnimation>> {
 	return {};
+}
+
+void Element::animateEffect(Ui::ReactionFlyAnimationArgs &&args) {
+}
+
+void Element::animateUnreadEffect() {
+}
+
+auto Element::takeEffectAnimation()
+-> std::unique_ptr<Ui::ReactionFlyAnimation> {
+	return nullptr;
+}
+
+QRect Element::effectIconGeometry() const {
+	return QRect();
 }
 
 Element::~Element() {

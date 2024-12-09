@@ -192,28 +192,38 @@ void ShowAddParticipantsError(
 			&& channel
 			&& !channel->isMegagroup()
 			&& channel->canAddAdmins()) {
-			const auto makeAdmin = [=] {
+			const auto makeAdmin = [=](Fn<void()> close) {
 				const auto user = forbidden.users.front();
 				const auto weak = std::make_shared<QPointer<EditAdminBox>>();
-				const auto close = [=](auto&&...) {
-					if (*weak) {
-						(*weak)->closeBox();
+				const auto done = [=](auto&&...) {
+					if (const auto strong = weak->data()) {
+						strong->uiShow()->showToast(
+							tr::lng_box_done(tr::now));
+						strong->closeBox();
+					}
+				};
+				const auto fail = [=] {
+					if (const auto strong = weak->data()) {
+						strong->closeBox();
 					}
 				};
 				const auto saveCallback = SaveAdminCallback(
 					show,
 					channel,
 					user,
-					close,
-					close);
+					done,
+					fail);
 				auto box = Box<EditAdminBox>(
 					channel,
 					user,
 					ChatAdminRightsInfo(),
-					QString());
+					QString(),
+					0,
+					nullptr);
 				box->setSaveCallback(saveCallback);
 				*weak = box.data();
 				show->showBox(std::move(box));
+				close();
 			};
 			show->showBox(
 				Ui::MakeConfirmBox({
@@ -605,8 +615,8 @@ void GroupInfoBox::prepare() {
 		_navigation->session().api().selfDestruct().reload();
 
 		const auto top = addTopButton(st::infoTopBarMenu);
-		const auto menu =
-			top->lifetime().make_state<base::unique_qptr<Ui::PopupMenu>>();
+		const auto menu
+			= top->lifetime().make_state<base::unique_qptr<Ui::PopupMenu>>();
 		top->setClickedCallback([=] {
 			*menu = base::make_unique_q<Ui::PopupMenu>(
 				top,
@@ -890,9 +900,10 @@ void GroupInfoBox::checkInviteLink() {
 		channelReady();
 	} else if (_createdChannel->isFullLoaded() && !_creatingInviteLink) {
 		_creatingInviteLink = true;
-		_createdChannel->session().api().inviteLinks().create(
+		_createdChannel->session().api().inviteLinks().create({
 			_createdChannel,
-			crl::guard(this, [=](auto&&) { channelReady(); }));
+			crl::guard(this, [=](auto&&) { channelReady(); }),
+		});
 	} else {
 		_createdChannel->session().changes().peerUpdates(
 			_createdChannel,
@@ -1235,7 +1246,7 @@ void SetupChannelBox::mousePressEvent(QMouseEvent *e) {
 		showToast(tr::lng_create_channel_link_copied(tr::now));
 	} else if (_channel->isFullLoaded() && !_creatingInviteLink) {
 		_creatingInviteLink = true;
-		_channel->session().api().inviteLinks().create(_channel);
+		_channel->session().api().inviteLinks().create({ _channel });
 	}
 }
 
@@ -1306,8 +1317,8 @@ void SetupChannelBox::handleChange() {
 				&& (ch < 'a' || ch > 'z')
 				&& (ch < '0' || ch > '9')
 				&& ch != '_') {
-				const auto badSymbols =
-					tr::lng_create_channel_link_bad_symbols(tr::now);
+				const auto badSymbols
+					= tr::lng_create_channel_link_bad_symbols(tr::now);
 				if (_errorText != badSymbols) {
 					_errorText = badSymbols;
 					update();
@@ -1317,8 +1328,8 @@ void SetupChannelBox::handleChange() {
 			}
 		}
 		if (name.size() < Ui::EditPeer::kMinUsernameLength) {
-			const auto tooShort =
-				tr::lng_create_channel_link_too_short(tr::now);
+			const auto tooShort
+				= tr::lng_create_channel_link_too_short(tr::now);
 			if (_errorText != tooShort) {
 				_errorText = tooShort;
 				update();

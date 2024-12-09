@@ -22,6 +22,7 @@ namespace Iv {
 
 class Data;
 class Shown;
+class TonSite;
 
 class Instance final {
 public:
@@ -36,6 +37,23 @@ public:
 		std::shared_ptr<Main::SessionShow> show,
 		not_null<Data*> data,
 		QString hash);
+	void show(
+		not_null<Main::Session*> session,
+		not_null<Data*> data,
+		QString hash);
+
+	void openWithIvPreferred(
+		not_null<Window::SessionController*> controller,
+		QString uri,
+		QVariant context = {});
+	void openWithIvPreferred(
+		not_null<Main::Session*> session,
+		QString uri,
+		QVariant context = {});
+
+	void showTonSite(
+		const QString &uri,
+		QVariant context = {});
 
 	[[nodiscard]] bool hasActiveWindow(
 		not_null<Main::Session*> session) const;
@@ -48,9 +66,22 @@ public:
 	[[nodiscard]] rpl::lifetime &lifetime();
 
 private:
+	struct FullResult {
+		crl::time lastRequestedAt = 0;
+		WebPageData *page = nullptr;
+		int32 hash = 0;
+	};
+
 	void processOpenChannel(const QString &context);
 	void processJoinChannel(const QString &context);
 	void requestFull(not_null<Main::Session*> session, const QString &id);
+
+	void trackSession(not_null<Main::Session*> session);
+
+	WebPageData *processReceivedPage(
+		not_null<Main::Session*> session,
+		const QString &url,
+		const MTPmessages_WebPage &result);
 
 	const not_null<Delegate*> _delegate;
 
@@ -62,10 +93,21 @@ private:
 		base::flat_set<not_null<ChannelData*>>> _joining;
 	base::flat_map<
 		not_null<Main::Session*>,
-		base::flat_set<QString>> _fullRequested;
+		base::flat_map<QString, FullResult>> _fullRequested;
+
+	base::flat_map<
+		not_null<Main::Session*>,
+		base::flat_map<QString, WebPageData*>> _ivCache;
+	Main::Session *_ivRequestSession = nullptr;
+	QString _ivRequestUri;
+	mtpRequestId _ivRequestId = 0;
+
+	std::unique_ptr<TonSite> _tonSite;
 
 	rpl::lifetime _lifetime;
 
 };
+
+[[nodiscard]] bool PreferForUri(const QString &uri);
 
 } // namespace Iv

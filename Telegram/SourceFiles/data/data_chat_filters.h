@@ -52,6 +52,7 @@ public:
 		FilterId id,
 		const QString &title,
 		const QString &iconEmoji,
+		std::optional<uint8> colorIndex,
 		Flags flags,
 		base::flat_set<not_null<History*>> always,
 		std::vector<not_null<History*>> pinned,
@@ -59,9 +60,11 @@ public:
 
 	[[nodiscard]] ChatFilter withId(FilterId id) const;
 	[[nodiscard]] ChatFilter withTitle(const QString &title) const;
+	[[nodiscard]] ChatFilter withColorIndex(std::optional<uint8>) const;
 	[[nodiscard]] ChatFilter withChatlist(
 		bool chatlist,
 		bool hasMyLinks) const;
+	[[nodiscard]] ChatFilter withoutAlways(not_null<History*>) const;
 
 	[[nodiscard]] static ChatFilter FromTL(
 		const MTPDialogFilter &data,
@@ -71,6 +74,7 @@ public:
 	[[nodiscard]] FilterId id() const;
 	[[nodiscard]] QString title() const;
 	[[nodiscard]] QString iconEmoji() const;
+	[[nodiscard]] std::optional<uint8> colorIndex() const;
 	[[nodiscard]] Flags flags() const;
 	[[nodiscard]] bool chatlist() const;
 	[[nodiscard]] bool hasMyLinks() const;
@@ -78,12 +82,15 @@ public:
 	[[nodiscard]] const std::vector<not_null<History*>> &pinned() const;
 	[[nodiscard]] const base::flat_set<not_null<History*>> &never() const;
 
-	[[nodiscard]] bool contains(not_null<History*> history) const;
+	[[nodiscard]] bool contains(
+		not_null<History*> history,
+		bool ignoreFakeUnread = false) const;
 
 private:
 	FilterId _id = 0;
 	QString _title;
 	QString _iconEmoji;
+	std::optional<uint8> _colorIndex;
 	base::flat_set<not_null<History*>> _always;
 	std::vector<not_null<History*>> _pinned;
 	base::flat_set<not_null<History*>> _never;
@@ -94,6 +101,7 @@ private:
 inline bool operator==(const ChatFilter &a, const ChatFilter &b) {
 	return (a.title() == b.title())
 		&& (a.iconEmoji() == b.iconEmoji())
+		&& (a.colorIndex() == b.colorIndex())
 		&& (a.flags() == b.flags())
 		&& (a.always() == b.always())
 		&& (a.never() == b.never());
@@ -119,12 +127,19 @@ struct SuggestedFilter {
 	QString description;
 };
 
+struct TagColorChanged final {
+	FilterId filterId = 0;
+	bool colorExistenceChanged = false;
+};
+
 class ChatFilters final {
 public:
 	explicit ChatFilters(not_null<Session*> owner);
 	~ChatFilters();
 
-	void setPreloaded(const QVector<MTPDialogFilter> &result);
+	void setPreloaded(
+		const QVector<MTPDialogFilter> &result,
+		bool tagsEnabled);
 
 	void load();
 	void reload();
@@ -135,6 +150,7 @@ public:
 	[[nodiscard]] const std::vector<ChatFilter> &list() const;
 	[[nodiscard]] rpl::producer<> changed() const;
 	[[nodiscard]] rpl::producer<FilterId> isChatlistChanged() const;
+	[[nodiscard]] rpl::producer<TagColorChanged> tagColorChanged() const;
 	[[nodiscard]] bool loaded() const;
 	[[nodiscard]] bool has() const;
 
@@ -181,6 +197,10 @@ public:
 		FilterId id) const;
 	void moreChatsHide(FilterId id, bool localOnly = false);
 
+	[[nodiscard]] bool tagsEnabled() const;
+	[[nodiscard]] rpl::producer<bool> tagsEnabledValue() const;
+	void requestToggleTags(bool value, Fn<void()> fail);
+
 private:
 	struct MoreChatsData {
 		std::vector<not_null<PeerData*>> missing;
@@ -205,9 +225,11 @@ private:
 	base::flat_map<FilterId, std::unique_ptr<Dialogs::MainList>> _chatsLists;
 	rpl::event_stream<> _listChanged;
 	rpl::event_stream<FilterId> _isChatlistChanged;
+	rpl::event_stream<TagColorChanged> _tagColorChanged;
 	mtpRequestId _loadRequestId = 0;
 	mtpRequestId _saveOrderRequestId = 0;
 	mtpRequestId _saveOrderAfterId = 0;
+	mtpRequestId _toggleTagsRequestId = 0;
 	bool _loaded = false;
 	bool _reloading = false;
 
@@ -215,6 +237,8 @@ private:
 	std::vector<SuggestedFilter> _suggested;
 	rpl::event_stream<> _suggestedUpdated;
 	crl::time _suggestedLastReceived = 0;
+
+	rpl::variable<bool> _tagsEnabled = false;
 
 	std::deque<FilterId> _exceptionsToLoad;
 	mtpRequestId _exceptionsLoadRequestId = 0;
@@ -228,5 +252,9 @@ private:
 	base::Timer _moreChatsTimer;
 
 };
+
+[[nodiscard]] bool CanRemoveFromChatFilter(
+	const ChatFilter &filter,
+	not_null<History*> history);
 
 } // namespace Data

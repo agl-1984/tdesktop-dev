@@ -9,6 +9,7 @@
 #include <ui/layers/generic_box.h>
 #include "ui/widgets/fields/masked_input_field.h"
 #include <ui/widgets/buttons.h>
+#include "ui/ui_utility.h" // WheelDirection
 
 #include "menu/menu_send.h"
 
@@ -233,21 +234,24 @@ static void MakeAutoDeleteBox(
     });
 
     SendMenu::SetupMenuAndShortcuts(
-        descriptor.submit.data(),
-        [=] { return SendMenu::Type::SilentOnly; },
-        [=] { save({ .silent = true, .ptgAutoDelete = descriptor.collect() }); },
+		descriptor.submit.data(),
         nullptr,
-        nullptr,
-        nullptr);
+        [=] { 
+            return SendMenu::Details{ .type = SendMenu::Type::SilentOnly }; 
+        },
+        [=](SendMenu::Action, SendMenu::Details) { 
+            save({ .silent = true, .ptgAutoDelete = descriptor.collect() }); 
+        }
+    );
 }
 
 namespace FakePasscode {
 
 object_ptr<Ui::GenericBox> AutoDeleteBox(
-        not_null<Ui::RpWidget*> parent,
+        not_null<QWidget*> quard,
         Fn<void(Api::SendOptions)> send,
         Ui::ChooseDateTimeStyleArgs style) {
-    auto callback = crl::guard(parent, send);
+    auto callback = crl::guard(quard, send);
     return Box(MakeAutoDeleteBox, callback, style);
 }
 

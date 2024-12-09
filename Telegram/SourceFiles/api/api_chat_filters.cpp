@@ -8,10 +8,12 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "api/api_chat_filters.h"
 
 #include "apiwrap.h"
+#include "base/event_filter.h"
 #include "boxes/peer_list_box.h"
 #include "boxes/premium_limits_box.h"
 #include "boxes/filters/edit_filter_links.h" // FilterChatStatusText
 #include "core/application.h"
+#include "core/core_settings.h"
 #include "data/data_channel.h"
 #include "data/data_chat.h"
 #include "data/data_chat_filters.h"
@@ -26,6 +28,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/widgets/buttons.h"
 #include "ui/filter_icons.h"
 #include "ui/vertical_list.h"
+#include "ui/ui_utility.h"
 #include "window/window_session_controller.h"
 #include "styles/style_filter_icons.h"
 #include "styles/style_layers.h"
@@ -151,6 +154,7 @@ void InitFilterLinkHeader(
 		.badge = (type == Ui::FilterLinkHeaderType::AddingChats
 			? std::move(count)
 			: rpl::single(0)),
+		.horizontalFilters = Core::App().settings().chatFiltersHorizontal(),
 	});
 	const auto widget = header.widget;
 	widget->resizeToWidth(st::boxWideWidth);
@@ -231,12 +235,12 @@ void ImportInvite(
 		api->request(MTPchatlists_JoinChatlistInvite(
 			MTP_string(slug),
 			MTP_vector<MTPInputPeer>(std::move(inputs))
-		)).done(callback).fail(error).send();
+		)).done(callback).fail(error).handleFloodErrors().send();
 	} else {
 		api->request(MTPchatlists_JoinChatlistUpdates(
 			MTP_inputChatlistDialogFilter(MTP_int(filterId)),
 			MTP_vector<MTPInputPeer>(std::move(inputs))
-		)).done(callback).fail(error).send();
+		)).done(callback).fail(error).handleFloodErrors().send();
 	}
 }
 
@@ -516,6 +520,8 @@ void ShowImportError(
 	} else {
 		window->showToast((error == u"INVITE_SLUG_EXPIRED"_q)
 			? tr::lng_group_invite_bad_link(tr::now)
+			: error.startsWith(u"FLOOD_WAIT_"_q)
+			? tr::lng_flood_error(tr::now)
 			: error);
 	}
 }
@@ -541,6 +547,26 @@ void ShowImportToast(
 		text.append('\n').append(phrase(tr::now, lt_count, added));
 	}
 	strong->showToast(std::move(text));
+}
+
+void HandleEnterInBox(not_null<Ui::BoxContent*> box) {
+	const auto isEnter = [=](not_null<QEvent*> event) {
+		if (event->type() == QEvent::KeyPress) {
+			if (const auto k = static_cast<QKeyEvent*>(event.get())) {
+				return (k->key() == Qt::Key_Enter)
+					|| (k->key() == Qt::Key_Return);
+			}
+		}
+		return false;
+	};
+
+	base::install_event_filter(box, [=](not_null<QEvent*> event) {
+		if (isEnter(event)) {
+			box->triggerButton(0);
+			return base::EventFilterResult::Cancel;
+		}
+		return base::EventFilterResult::Continue;
+	});
 }
 
 void ProcessFilterInvite(
@@ -604,6 +630,8 @@ void ProcessFilterInvite(
 		}, button->lifetime());
 
 		box->addButton(std::move(owned));
+
+		HandleEnterInBox(box);
 
 		struct State {
 			bool importing = false;
@@ -823,6 +851,8 @@ void ProcessFilterRemove(
 		}, button->lifetime());
 
 		box->addButton(std::move(owned));
+
+		HandleEnterInBox(box);
 
 		raw->selectedValue(
 		) | rpl::start_with_next([=](

@@ -7,6 +7,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #pragma once
 
+#include "core/stars_amount.h"
 #include "data/data_birthday.h"
 #include "data/data_peer.h"
 #include "data/data_chat_participant_status.h"
@@ -18,6 +19,17 @@ namespace Data {
 struct BotCommand;
 struct BusinessDetails;
 } // namespace Data
+
+struct StarRefProgram {
+	StarsAmount revenuePerUser;
+	TimeId endDate = 0;
+	ushort commission = 0;
+	uint8 durationMonths = 0;
+
+	friend inline constexpr bool operator==(
+		StarRefProgram,
+		StarRefProgram) = default;
+};
 
 struct BotInfo {
 	BotInfo();
@@ -31,6 +43,12 @@ struct BotInfo {
 
 	QString botMenuButtonText;
 	QString botMenuButtonUrl;
+	QString privacyPolicyUrl;
+
+	QColor botAppColorTitleDay = QColor(0, 0, 0, 0);
+	QColor botAppColorTitleNight = QColor(0, 0, 0, 0);
+	QColor botAppColorBodyDay = QColor(0, 0, 0, 0);
+	QColor botAppColorBodyNight = QColor(0, 0, 0, 0);
 
 	QString startToken;
 	Dialogs::EntryState inlineReturnTo;
@@ -38,14 +56,19 @@ struct BotInfo {
 	ChatAdminRights groupAdminRights;
 	ChatAdminRights channelAdminRights;
 
+	StarRefProgram starRefProgram;
+
 	int version = 0;
 	int descriptionVersion = 0;
+	int activeUsers = 0;
 	bool inited : 1 = false;
 	bool readsAllHistory : 1 = false;
 	bool cantJoinGroups : 1 = false;
 	bool supportsAttachMenu : 1 = false;
 	bool canEditInformation : 1 = false;
+	bool canManageEmojiStatus : 1 = false;
 	bool supportsBusiness : 1 = false;
+	bool hasMainApp : 1 = false;
 };
 
 enum class UserDataFlag : uint32 {
@@ -64,7 +87,7 @@ enum class UserDataFlag : uint32 {
 	DiscardMinPhoto = (1 << 12),
 	Self = (1 << 13),
 	Premium = (1 << 14),
-	CanReceiveGifts = (1 << 15),
+	//CanReceiveGifts = (1 << 15),
 	VoiceMessagesForbidden = (1 << 16),
 	PersonalPhoto = (1 << 17),
 	StoriesHidden = (1 << 18),
@@ -74,6 +97,10 @@ enum class UserDataFlag : uint32 {
 	SomeRequirePremiumToWrite = (1 << 22),
 	RequirePremiumToWriteKnown = (1 << 23),
 	ReadDatesPrivate = (1 << 24),
+	// shift values!
+	PTG_Verified = (1ull << 29),
+	PTG_Scam = (1ull << 30),
+	PTG_Fake = (1ull << 31),
 };
 inline constexpr bool is_flag_type(UserDataFlag) { return true; };
 using UserDataFlags = base::flags<UserDataFlag>;
@@ -143,8 +170,6 @@ public:
 	[[nodiscard]] bool canShareThisContact() const;
 	[[nodiscard]] bool canAddContact() const;
 
-	[[nodiscard]] bool canReceiveGifts() const;
-
 	// In Data::Session::processUsers() we check only that.
 	// When actually trying to share contact we perform
 	// a full check by canShareThisContact() call.
@@ -182,11 +207,11 @@ public:
 	void setBirthday(Data::Birthday value);
 	void setBirthday(const tl::conditional<MTPBirthday> &value);
 
-	void setUnavailableReasons(
-		std::vector<Data::UnavailableReason> &&reasons);
-
-	int commonChatsCount() const;
+	[[nodiscard]] int commonChatsCount() const;
 	void setCommonChatsCount(int count);
+
+	[[nodiscard]] int peerGiftsCount() const;
+	void setPeerGiftsCount(int count);
 
 	[[nodiscard]] bool hasPrivateForwardName() const;
 	[[nodiscard]] QString privateForwardName() const;
@@ -198,6 +223,8 @@ public:
 
 	[[nodiscard]] const Data::BusinessDetails &businessDetails() const;
 	void setBusinessDetails(Data::BusinessDetails details);
+
+	void setStarRefProgram(StarRefProgram program);
 
 	[[nodiscard]] ChannelId personalChannelId() const;
 	[[nodiscard]] MsgId personalChannelMessageId() const;
@@ -215,10 +242,14 @@ private:
 	auto unavailableReasons() const
 		-> const std::vector<Data::UnavailableReason> & override;
 
+	void setUnavailableReasonsList(
+		std::vector<Data::UnavailableReason> &&reasons) override;
+
 	Flags _flags;
 	Data::LastseenStatus _lastseen;
 	Data::Birthday _birthday;
 	int _commonChatsCount = 0;
+	int _peerGiftsCount = 0;
 	ContactStatus _contactStatus = ContactStatus::Unknown;
 	CallsStatus _callsStatus = CallsStatus::Unknown;
 
@@ -241,5 +272,8 @@ private:
 namespace Data {
 
 void ApplyUserUpdate(not_null<UserData*> user, const MTPDuserFull &update);
+
+[[nodiscard]] StarRefProgram ParseStarRefProgram(
+	const MTPStarRefProgram *program);
 
 } // namespace Data

@@ -29,6 +29,7 @@
 #include "ui/widgets/labels.h"
 #include "ui/wrap/vertical_layout.h"
 
+#include "fakepasscode/ptg.h"
 
 class FakePasscodeContentBox;
 class FakePasscodeAccountContent;
@@ -139,8 +140,6 @@ void FakePasscodeContent::setupContent() {
         return result;
     };
 
-    const auto updates = Ui::CreateChild<rpl::event_stream<>>(content);
-
     Ui::AddSubsectionTitle(content, tr::lng_fakeaccountaction_list());
     const auto accounts = Core::App().domain().orderedAccountsEx();
     for (const auto& record : accounts) {
@@ -148,44 +147,45 @@ void FakePasscodeContent::setupContent() {
             content);
         const auto button = content->add(MakeAccountButton(content, record.account));
 
-        const auto name = content->add(object_ptr<Ui::FlatLabel>(
+        static style::FlatLabel stLabel(st::boxDividerLabel);
+        stLabel.textFg = st::defaultSettingsRightLabel.textFg;
+        content->add(object_ptr<Ui::FlatLabel>(
             content,
             texts->events(),
-            st::defaultSettingsRightLabel),
+            stLabel),
             style::margins(
                 st::boxRowPadding.left() + 32,
                 0,
                 st::boxRowPadding.right(),
                 st::defaultVerticalListSkip * 2)
         );
-        texts->events()
-        | rpl::start_with_next([=](const QString& text) {
-            name->resizeToWidth(button->width());
-        }, content->lifetime());
         texts->fire(AccountUIActions(record.index));
 
-        updates->events(
+        PTG::GetFakePasscodeUpdates(
         ) | rpl::start_with_next([=] {
             texts->fire(AccountUIActions(record.index));
         }, content->lifetime());
 
-        button->addClickHandler([record, this, updates] {
+        button->addClickHandler([record, this] {
             auto box = _controller->show(Box<FakePasscodeAccountBox>(_domain, _controller, _passcodeIndex, record.index),
                                                                      Ui::LayerOption::KeepOther);
             box->boxClosing() | rpl::start_with_next([=] {
-                updates->fire({});
+                PTG::FireFakePasscodeUpdates();
             }, box->lifetime());
         });
 
     }
 
     // non account action_list
+    AddDivider(content);
     Ui::AddSubsectionTitle(content, tr::lng_fakeglobalaction_list(),
         style::margins(0, st::defaultVerticalListSkip, 0, 0));
-    for (const auto& type : FakePasscode::kAvailableGlobalActions) {
-        const auto ui = GetUIByAction(type, _domain, _passcodeIndex, this);
+    for (const auto& record : FakePasscode::kAvailableGlobalActions) {
+        const auto ui = GetUIByAction(record.Type, _domain, _passcodeIndex, this);
         ui->Create(content, _controller);
-        Ui::AddDivider(content);
+        if (record.HasDivider) {
+            Ui::AddDivider(content);
+        }
     }
 
     // password actions
@@ -278,9 +278,8 @@ void FakePasscodeList::draw(size_t passcodesSize) {
                               Ui::LayerOption::KeepOther);
         });
     }
-    AddDivider(content);
-    AddButtonWithIcon(content, tr::lng_add_fakepasscode(), st::settingsButton,
-                      {&st::settingsIconAdd})->addClickHandler([this] {
+    AddButtonWithIcon(content, tr::lng_add_fakepasscode(), st::settingsButtonActive,
+                      {&st::settingsIconAdd, IconType::Round, &st::windowBgActive })->addClickHandler([this] {
         _controller->show(Box<FakePasscodeBox>(_controller, false, true, 0), // _domain
                           Ui::LayerOption::KeepOther);
     });
@@ -295,6 +294,9 @@ void FakePasscodeList::draw(size_t passcodesSize) {
         _domain->local().writeAccounts();
     });
 
+    Ui::AddDividerText(content, tr::lng_clear_cache_on_lock_help());
+    Ui::AddSkip(content, st::settingsCheckboxesSkip);
+
     const auto toggledLogging = Ui::CreateChild<rpl::event_stream<bool>>(this);
     auto buttonLogging = AddButtonWithIcon(content, tr::lng_enable_advance_logging(), st::settingsButton,
                                            {&st::menuIconSavedMessages})
@@ -305,15 +307,21 @@ void FakePasscodeList::draw(size_t passcodesSize) {
         _domain->local().writeAccounts();
     });
 
+    Ui::AddDividerText(content, tr::lng_enable_advance_logging_help());
+    Ui::AddSkip(content, st::settingsCheckboxesSkip);
+
     const auto toggledErasingCleaning = Ui::CreateChild<rpl::event_stream<bool>>(this);
     auto buttonErasing = AddButtonWithIcon(content, tr::lng_enable_dod_cleaning(), st::settingsButton,
-                                           {&st::menuIconClear})
+                                           {&st::menuIconDelete})
         ->toggleOn(toggledErasingCleaning->events_starting_with_copy(_domain->local().IsErasingEnabled()));
 
     buttonErasing->addClickHandler([=] {
         _domain->local().SetErasingEnabled(buttonErasing->toggled());
         _domain->local().writeAccounts();
     });
+
+    Ui::AddDividerText(content, tr::lng_enable_dod_cleaning_help());
+    Ui::AddSkip(content, st::settingsCheckboxesSkip);
 
     Ui::ResizeFitChild(this, content);
     FAKE_LOG(("Draw %1 passcodes: success").arg(passcodesSize));

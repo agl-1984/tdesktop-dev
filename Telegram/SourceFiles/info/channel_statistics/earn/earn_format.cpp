@@ -12,6 +12,7 @@ namespace Info::ChannelEarn {
 using EarnInt = Data::EarnInt;
 
 constexpr auto kMinorPartLength = 9;
+constexpr auto kMaxChoppedZero = kMinorPartLength - 2;
 constexpr auto kZero = QChar('0');
 constexpr auto kDot = QChar('.');
 
@@ -35,7 +36,7 @@ QString MinorPart(EarnInt value) {
 	auto ch = end - 1;
 	auto zeroCount = 0;
 	while (ch != begin) {
-		if ((*ch) == kZero) {
+		if (((*ch) == kZero) && (zeroCount < kMaxChoppedZero)) {
 			zeroCount++;
 		} else {
 			break;
@@ -45,14 +46,26 @@ QString MinorPart(EarnInt value) {
 	return result.chopped(zeroCount);
 }
 
-QString ToUsd(EarnInt value, float64 rate) {
+QString ToUsd(
+		Data::EarnInt value,
+		float64 rate,
+		int afterFloat) {
+	return ToUsd(StarsAmount(value), rate, afterFloat);
+}
+
+QString ToUsd(
+		StarsAmount value,
+		float64 rate,
+		int afterFloat) {
 	constexpr auto kApproximately = QChar(0x2248);
-	const auto multiplier = EarnInt(rate * Data::kEarnMultiplier);
-	const auto result = (value * multiplier) / Data::kEarnMultiplier;
+
+	const auto result = int64(base::SafeRound(value.value() * rate));
 	return QString(kApproximately)
 		+ QChar('$')
 		+ MajorPart(result)
-		+ MinorPart(result);
+		+ ((afterFloat > 0)
+			? MinorPart(result).left(afterFloat)
+			: MinorPart(result));
 }
 
 } // namespace Info::ChannelEarn

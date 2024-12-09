@@ -41,6 +41,7 @@ constexpr auto kMaxSizeFixed = 512;
 constexpr auto kMaxEmojiSizeFixed = 256;
 constexpr auto kPremiumMultiplier = (1 + 0.245 * 2);
 constexpr auto kEmojiMultiplier = 3;
+constexpr auto kMessageEffectMultiplier = 2;
 
 [[nodiscard]] QImage CacheDiceImage(
 		const QString &emoji,
@@ -137,6 +138,10 @@ bool Sticker::emojiSticker() const {
 	return _emojiSticker;
 }
 
+bool Sticker::webpagePart() const {
+	return _webpagePart;
+}
+
 void Sticker::initSize(int customSize) {
 	if (customSize > 0) {
 		const auto original = Size(_data);
@@ -204,6 +209,10 @@ QSize Sticker::EmojiEffectSize() {
 	return EmojiSize() * kEmojiMultiplier;
 }
 
+QSize Sticker::MessageEffectSize() {
+	return EmojiSize() * kMessageEffectMultiplier;
+}
+
 QSize Sticker::EmojiSize() {
 	const auto side = std::min(st::maxAnimatedEmojiSize, kMaxEmojiSizeFixed);
 	return { side, side };
@@ -241,7 +250,6 @@ DocumentData *Sticker::document() {
 
 void Sticker::stickerClearLoopPlayed() {
 	_oncePlayed = false;
-	_premiumEffectPlayed = false;
 	_premiumEffectSkipped = false;
 }
 
@@ -355,6 +363,8 @@ void Sticker::paintPath(
 		helper.emplace(Ui::CustomEmoji::PreviewColorFromTextColor(
 			ComputeEmojiTextColor(context)));
 		pathGradient->overrideColors(helper->color(), helper->color());
+	} else if (webpagePart()) {
+		pathGradient->overrideColors(st::shadowFg, st::shadowFg);
 	} else if (context.selected()) {
 		pathGradient->overrideColors(
 			context.st->msgServiceBgSelected(),
@@ -511,6 +521,10 @@ void Sticker::setCustomEmojiPart() {
 
 void Sticker::setEmojiSticker() {
 	_emojiSticker = true;
+}
+
+void Sticker::setWebpagePart() {
+	_webpagePart = true;
 }
 
 void Sticker::setupPlayer() {

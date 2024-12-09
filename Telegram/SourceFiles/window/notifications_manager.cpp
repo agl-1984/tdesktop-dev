@@ -994,7 +994,7 @@ TextWithEntities Manager::ComposeReactionNotification(
 				lt_reaction,
 				reactionWithEntities,
 				lt_title,
-				Ui::Text::WithEntities(poll->question),
+				poll->question,
 				Ui::Text::WithEntities);
 	} else if (media->game()) {
 		return simple(tr::lng_reaction_game);
@@ -1076,7 +1076,6 @@ void Manager::notificationActivated(
 				history->setLocalDraft(std::move(draft));
 			}
 			window->widget()->showFromTray();
-			window->widget()->reActivateWindow();
 			if (Core::App().passcodeLocked()) {
 				window->widget()->setInnerFocus();
 				system()->clearAll();
@@ -1097,7 +1096,7 @@ void Manager::openNotificationMessage(
 		&& item->isRegular()
 		&& (item->out() || (item->mentionsMe() && !history->peer->isUser()));
 	const auto topic = item ? item->topic() : nullptr;
-	const auto separate = Core::App().separateWindowForPeer(history->peer);
+	const auto separate = Core::App().separateWindowFor(history->peer);
 	const auto window = separate
 		? separate->sessionController()
 		: history->session().tryResolveWindow();

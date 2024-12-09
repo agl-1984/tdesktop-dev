@@ -7,12 +7,15 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "media/stories/media_stories_controller.h"
 
+#include "base/platform/base_platform_info.h"
 #include "base/power_save_blocker.h"
 #include "base/qt_signal_producer.h"
 #include "base/unixtime.h"
 #include "boxes/peers/prepare_short_info_box.h"
+#include "boxes/report_messages_box.h"
 #include "chat_helpers/compose/compose_show.h"
 #include "core/application.h"
+#include "core/click_handler_types.h"
 #include "core/core_settings.h"
 #include "core/update_checker.h"
 #include "data/data_changes.h"
@@ -38,7 +41,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "media/stories/media_stories_view.h"
 #include "media/audio/media_audio.h"
 #include "ui/boxes/confirm_box.h"
-#include "ui/boxes/report_box.h"
+#include "ui/boxes/report_box_graphics.h"
 #include "ui/text/text_utilities.h"
 #include "ui/toast/toast.h"
 #include "ui/widgets/buttons.h"
@@ -77,16 +80,23 @@ struct SameDayRange {
 [[nodiscard]] SameDayRange ComputeSameDayRange(
 		not_null<Data::Story*> story,
 		const Data::StoriesIds &ids,
+		const std::vector<StoryId> &sorted,
 		int index) {
 	Expects(index >= 0 && index < ids.list.size());
+	Expects(index >= 0 && index < sorted.size());
+
+	const auto pinned = int(ids.pinnedToTop.size());
+	if (index < pinned) {
+		return SameDayRange{ .from = 0, .till = pinned - 1 };
+	}
 
 	auto result = SameDayRange{ .from = index, .till = index };
 	const auto peerId = story->peer()->id;
 	const auto stories = &story->owner().stories();
 	const auto now = base::unixtime::parse(story->date());
-	const auto b = begin(ids.list);
-	for (auto i = b + index; i != b;) {
-		if (const auto maybeStory = stories->lookup({ peerId, *--i })) {
+	for (auto i = index; i != 0;) {
+		const auto storyId = sorted[--i];
+		if (const auto maybeStory = stories->lookup({ peerId, storyId })) {
 			const auto day = base::unixtime::parse((*maybeStory)->date());
 			if (day.date() != now.date()) {
 				break;
@@ -94,8 +104,9 @@ struct SameDayRange {
 		}
 		--result.from;
 	}
-	for (auto i = b + index + 1, e = end(ids.list); i != e; ++i) {
-		if (const auto maybeStory = stories->lookup({ peerId, *i })) {
+	for (auto i = index + 1, c = int(sorted.size()); i != c; ++i) {
+		const auto storyId = sorted[i];
+		if (const auto maybeStory = stories->lookup({ peerId, storyId })) {
 			const auto day = base::unixtime::parse((*maybeStory)->date());
 			if (day.date() != now.date()) {
 				break;
@@ -117,6 +128,13 @@ struct SameDayRange {
 	return origin + QPoint(
 		int(base::SafeRound(acos * point.x() - asin * point.y())),
 		int(base::SafeRound(asin * point.x() + acos * point.y())));
+}
+
+[[nodiscard]] bool ResolveWeatherInCelsius() {
+	const auto saved = Core::App().settings().weatherInCelsius();
+	return saved.value_or(!ranges::contains(
+		std::array{ u"US"_q, u"BS"_q, u"KY"_q, u"LR"_q, u"BZ"_q },
+		Platform::SystemCountry().toUpper()));
 }
 
 } // namespace
@@ -275,7 +293,8 @@ Controller::Controller(not_null<Delegate*> delegate)
 , _slider(std::make_unique<Slider>(this))
 , _replyArea(std::make_unique<ReplyArea>(this))
 , _reactions(std::make_unique<Reactions>(this))
-, _recentViews(std::make_unique<RecentViews>(this)) {
+, _recentViews(std::make_unique<RecentViews>(this))
+, _weatherInCelsius(ResolveWeatherInCelsius()){
 	initLayout();
 
 	using namespace rpl::mappers;
@@ -320,16 +339,11 @@ Controller::Controller(not_null<Delegate*> delegate)
 		}
 	}, _lifetime);
 
-	const auto window = _wrap->window()->windowHandle();
-	Assert(window != nullptr);
-	base::qt_signal_producer(
-		window,
-		&QWindow::activeChanged
-	) | rpl::start_with_next([=] {
-		_windowActive = window->isActive();
+	_wrap->windowActiveValue(
+	) | rpl::start_with_next([=](bool active) {
+		_windowActive = active;
 		updatePlayingAllowed();
 	}, _lifetime);
-	_windowActive = window->isActive();
 
 	_contentFadeAnimation.stop();
 }
@@ -532,8 +546,9 @@ void Controller::rebuildActiveAreas(const Layout &layout) const {
 			int(base::SafeRound(general.width() * scale.width())),
 			int(base::SafeRound(general.height() * scale.height()))
 		).translated(origin);
-		if (const auto reaction = area.reaction.get()) {
-			reaction->setAreaGeometry(area.geometry);
+		area.radius = scale.width() * area.radiusOriginal / 100.;
+		if (const auto view = area.view.get()) {
+			view->setAreaGeometry(area.geometry, area.radius);
 		}
 	}
 }
@@ -671,11 +686,6 @@ auto Controller::stickerOrEmojiChosen() const
 	return _delegate->storiesStickerOrEmojiChosen();
 }
 
-auto Controller::cachedReactionIconFactory() const
--> HistoryView::Reactions::CachedIconFactory & {
-	return _delegate->storiesCachedReactionIconFactory();
-}
-
 void Controller::rebuildFromContext(
 		not_null<PeerData*> peer,
 		FullStoryId storyId) {
@@ -694,17 +704,19 @@ void Controller::rebuildFromContext(
 	}, [&](StoriesContextSaved) {
 		if (stories.savedCountKnown(peerId)) {
 			const auto &saved = stories.saved(peerId);
-			const auto &ids = saved.list;
-			const auto i = ids.find(id);
-			if (i != end(ids)) {
+			auto sorted = RespectingPinned(saved);
+			const auto i = ranges::find(sorted, id);
+			const auto tillEnd = int(end(sorted) - i);
+			if (tillEnd > 0) {
+				_index = int(i - begin(sorted));
 				list = StoriesList{
 					.peer = peer,
 					.ids = saved,
+					.sorted = std::move(sorted),
 					.total = stories.savedCount(peerId),
 				};
-				_index = int(i - begin(ids));
-				if (ids.size() < list->total
-					&& (end(ids) - i) < kPreloadStoriesCount) {
+				if (saved.list.size() < list->total
+					&& tillEnd < kPreloadStoriesCount) {
 					stories.savedLoadMore(peerId);
 				}
 			}
@@ -713,17 +725,19 @@ void Controller::rebuildFromContext(
 	}, [&](StoriesContextArchive) {
 		if (stories.archiveCountKnown(peerId)) {
 			const auto &archive = stories.archive(peerId);
-			const auto &ids = archive.list;
-			const auto i = ids.find(id);
-			if (i != end(ids)) {
+			auto sorted = RespectingPinned(archive);
+			const auto i = ranges::find(sorted, id);
+			const auto tillEnd = int(end(sorted) - i);
+			if (tillEnd > 0) {
+				_index = int(i - begin(sorted));
 				list = StoriesList{
 					.peer = peer,
 					.ids = archive,
+					.sorted = std::move(sorted),
 					.total = stories.archiveCount(peerId),
 				};
-				_index = int(i - begin(ids));
-				if (ids.size() < list->total
-					&& (end(ids) - i) < kPreloadStoriesCount) {
+				if (archive.list.size() < list->total
+					&& tillEnd < kPreloadStoriesCount) {
 					stories.archiveLoadMore(peerId);
 				}
 			}
@@ -757,7 +771,11 @@ void Controller::rebuildFromContext(
 		}
 		if (const auto maybe = peer->owner().stories().lookup(storyId)) {
 			const auto now = *maybe;
-			const auto range = ComputeSameDayRange(now, _list->ids, _index);
+			const auto range = ComputeSameDayRange(
+				now,
+				_list->ids,
+				_list->sorted,
+				_index);
 			_sliderCount = range.till - range.from + 1;
 			_sliderIndex = _index - range.from;
 		}
@@ -775,6 +793,7 @@ void Controller::rebuildFromContext(
 			_list = StoriesList{
 				.peer = peer,
 				.ids = { { id } },
+				.sorted = { id },
 				.total = 1,
 			};
 			_index = 0;
@@ -1039,6 +1058,12 @@ void Controller::updateAreas(Data::Story *story) {
 	const auto &channelPosts = story
 		? story->channelPosts()
 		: std::vector<Data::ChannelPost>();
+	const auto &urlAreas = story
+		? story->urlAreas()
+		: std::vector<Data::UrlArea>();
+	const auto &weatherAreas = story
+		? story->weatherAreas()
+		: std::vector<Data::WeatherArea>();
 	if (_locations != locations) {
 		_locations = locations;
 		_areas.clear();
@@ -1047,13 +1072,22 @@ void Controller::updateAreas(Data::Story *story) {
 		_channelPosts = channelPosts;
 		_areas.clear();
 	}
+	if (_urlAreas != urlAreas) {
+		_urlAreas = urlAreas;
+		_areas.clear();
+	}
+	if (_weatherAreas != weatherAreas) {
+		_weatherAreas = weatherAreas;
+		_areas.clear();
+	}
 	const auto reactionsCount = int(suggestedReactions.size());
 	if (_suggestedReactions.size() == reactionsCount && !_areas.empty()) {
 		for (auto i = 0; i != reactionsCount; ++i) {
 			const auto count = suggestedReactions[i].count;
 			if (_suggestedReactions[i].count != count) {
 				_suggestedReactions[i].count = count;
-				_areas[i + _locations.size()].reaction->updateCount(count);
+				const auto view = _areas[i + _locations.size()].view.get();
+				view->updateReactionsCount(count);
 			}
 			if (_suggestedReactions[i] != suggestedReactions[i]) {
 				_suggestedReactions = suggestedReactions;
@@ -1190,13 +1224,16 @@ ClickHandlerPtr Controller::lookupAreaHandler(QPoint point) const {
 	if (!layout
 		|| (_locations.empty()
 			&& _suggestedReactions.empty()
-			&& _channelPosts.empty())) {
+			&& _channelPosts.empty()
+			&& _urlAreas.empty()
+			&& _weatherAreas.empty())) {
 		return nullptr;
 	} else if (_areas.empty()) {
 		const auto now = story();
 		_areas.reserve(_locations.size()
 			+ _suggestedReactions.size()
-			+ _channelPosts.size());
+			+ _channelPosts.size()
+			+ _urlAreas.size());
 		for (const auto &location : _locations) {
 			_areas.push_back({
 				.original = location.area.geometry,
@@ -1223,7 +1260,7 @@ ClickHandlerPtr Controller::lookupAreaHandler(QPoint point) const {
 						}
 					}
 				}),
-				.reaction = std::move(widget),
+				.view = std::move(widget),
 			});
 		}
 		if (const auto session = now ? &now->session() : nullptr) {
@@ -1237,25 +1274,47 @@ ClickHandlerPtr Controller::lookupAreaHandler(QPoint point) const {
 				});
 			}
 		}
+		for (const auto &url : _urlAreas) {
+			_areas.push_back({
+				.original = url.area.geometry,
+				.rotation = url.area.rotation,
+				.handler = std::make_shared<HiddenUrlClickHandler>(url.url, url.url),
+			});
+		}
+		for (const auto &weather : _weatherAreas) {
+			_areas.push_back({
+				.original = weather.area.geometry,
+				.radiusOriginal = weather.area.radius,
+				.rotation = weather.area.rotation,
+				.handler = std::make_shared<LambdaClickHandler>([=] {
+					toggleWeatherMode();
+				}),
+				.view = _reactions->makeWeatherAreaWidget(
+					weather,
+					_weatherInCelsius.value()),
+			});
+		}
 		rebuildActiveAreas(*layout);
 	}
 
-	const auto circleContains = [&](QRect circle) {
-		const auto radius = std::min(circle.width(), circle.height()) / 2;
-		const auto delta = circle.center() - point;
-		return QPoint::dotProduct(delta, delta) < (radius * radius);
-	};
 	for (const auto &area : _areas) {
 		const auto center = area.geometry.center();
 		const auto angle = -area.rotation;
-		const auto contains = area.reaction
-			? circleContains(area.geometry)
+		const auto contains = area.view
+			? area.view->contains(point)
 			: area.geometry.contains(Rotated(point, center, angle));
 		if (contains) {
 			return area.handler;
 		}
 	}
 	return nullptr;
+}
+
+void Controller::toggleWeatherMode() const {
+	const auto now = !_weatherInCelsius.current();
+	Core::App().settings().setWeatherInCelsius(now);
+	Core::App().saveSettingsDelayed();
+	_weatherInCelsius = now;
 }
 
 void Controller::maybeMarkAsRead(const Player::TrackState &state) {
@@ -1519,8 +1578,8 @@ StoryId Controller::shownId(int index) const {
 
 	return _source
 		? (_source->ids.begin() + index)->id
-		: (index < int(_list->ids.list.size()))
-		? *(_list->ids.list.begin() + index)
+		: (index < int(_list->sorted.size()))
+		? _list->sorted[index]
 		: StoryId();
 }
 
@@ -1696,17 +1755,19 @@ void Controller::reportRequested() {
 	ReportRequested(uiShow(), _shown, &st::storiesReportBox);
 }
 
-void Controller::togglePinnedRequested(bool pinned) {
+void Controller::toggleInProfileRequested(bool inProfile) {
 	const auto story = this->story();
 	if (!story || !story->peer()->isSelf()) {
 		return;
 	}
-	if (!pinned && v::is<Data::StoriesContextSaved>(_context.data)) {
+	if (!inProfile && v::is<Data::StoriesContextSaved>(_context.data)) {
 		moveFromShown();
 	}
-	story->owner().stories().togglePinnedList({ story->fullId() }, pinned);
+	story->owner().stories().toggleInProfileList(
+		{ story->fullId() },
+		inProfile);
 	const auto channel = story->peer()->isChannel();
-	uiShow()->showToast(PrepareTogglePinnedToast(channel, 1, pinned));
+	uiShow()->showToast(PrepareToggleInProfileToast(channel, 1, inProfile));
 }
 
 void Controller::moveFromShown() {
@@ -1757,12 +1818,12 @@ void Controller::updatePowerSaveBlocker(const Player::TrackState &state) {
 		[=] { return _wrap->window()->windowHandle(); });
 }
 
-Ui::Toast::Config PrepareTogglePinnedToast(
+Ui::Toast::Config PrepareToggleInProfileToast(
 		bool channel,
 		int count,
-		bool pinned) {
+		bool inProfile) {
 	return {
-		.text = (pinned
+		.text = (inProfile
 			? (count == 1
 				? (channel
 					? tr::lng_stories_channel_save_done
@@ -1793,8 +1854,41 @@ Ui::Toast::Config PrepareTogglePinnedToast(
 						count,
 						Ui::Text::WithEntities))),
 		.st = &st::storiesActionToast,
-		.duration = (pinned
-			? Data::Stories::kPinnedToastDuration
+		.duration = (inProfile
+			? Data::Stories::kInProfileToastDuration
+			: Ui::Toast::kDefaultDuration),
+	};
+}
+
+Ui::Toast::Config PrepareTogglePinToast(
+		bool channel,
+		int count,
+		bool pin) {
+	return {
+		.title = (pin
+			? (count == 1
+				? tr::lng_mediaview_pin_story_done(tr::now)
+				: tr::lng_mediaview_pin_stories_done(
+					tr::now,
+					lt_count,
+					count))
+			: QString()),
+		.text = { (pin
+			? (count == 1
+				? tr::lng_mediaview_pin_story_about(tr::now)
+				: tr::lng_mediaview_pin_stories_about(
+					tr::now,
+					lt_count,
+					count))
+			: (count == 1
+				? tr::lng_mediaview_unpin_story_done(tr::now)
+				: tr::lng_mediaview_unpin_stories_done(
+					tr::now,
+					lt_count,
+					count))) },
+		.st = &st::storiesActionToast,
+		.duration = (pin
+			? Data::Stories::kInProfileToastDuration
 			: Ui::Toast::kDefaultDuration),
 	};
 }
@@ -1803,16 +1897,12 @@ void ReportRequested(
 		std::shared_ptr<Main::SessionShow> show,
 		FullStoryId id,
 		const style::ReportBox *stOverride) {
-	const auto owner = &show->session().data();
-	const auto st = stOverride ? stOverride : &st::defaultReportBox;
-	show->show(Box(Ui::ReportReasonBox, *st, Ui::ReportSource::Story, [=](
-			Ui::ReportReason reason) {
-		const auto done = [=](const QString &text) {
-			owner->stories().report(show, id, reason, text);
-			show->hideLayer();
-		};
-		show->showBox(Box(Ui::ReportDetailsBox, *st, done));
-	}));
+	if (const auto maybeStory = show->session().data().stories().lookup(id)) {
+		const auto story = *maybeStory;
+		const auto st = stOverride ? stOverride : &st::defaultReportBox;
+		// show->hideLayer();
+		ShowReportMessageBox(show, story->peer(), {}, { story->id() }, st);
+	}
 }
 
 object_ptr<Ui::BoxContent> PrepareShortInfoBox(not_null<PeerData*> peer) {
@@ -1831,6 +1921,7 @@ object_ptr<Ui::BoxContent> PrepareShortInfoBox(not_null<PeerData*> peer) {
 		peer,
 		open,
 		[] { return false; },
+		nullptr,
 		&st::storiesShortInfoBox);
 }
 
@@ -1839,16 +1930,12 @@ ClickHandlerPtr MakeChannelPostHandler(
 		FullMsgId item) {
 	return std::make_shared<LambdaClickHandler>(crl::guard(session, [=] {
 		const auto peer = session->data().peer(item.peer);
-		if (const auto window = Core::App().windowFor(peer)) {
-			if (const auto controller = window->sessionController()) {
-				if (&controller->session() == &peer->session()) {
-					Core::App().hideMediaView();
-					controller->showPeerHistory(
-						item.peer,
-						Window::SectionShow::Way::ClearStack,
-						item.msg);
-				}
-			}
+		if (const auto controller = session->tryResolveWindow(peer)) {
+			Core::App().hideMediaView();
+			controller->showPeerHistory(
+				peer,
+				Window::SectionShow::Way::ClearStack,
+				item.msg);
 		}
 	}));
 }

@@ -1,0 +1,15 @@
+name: Waiting for answer.
+
+on:
+  issue_comment:
+    types: [created]
+  workflow_dispatch:
+
+jobs:
+  waiting-for-answer:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: lee-dohm/no-response@v0.5.0
+        with:
+          token: ${{ github.token }}
+          responseRequiredLabel: waiting for answer
