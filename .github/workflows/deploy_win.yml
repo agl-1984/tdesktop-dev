@@ -9,7 +9,7 @@ jobs:
   deps:
     environment: Release
     name: Libraries
-    runs-on: windows-latest
+    runs-on: windows-2019
 
     strategy:
       matrix:
@@ -42,7 +42,6 @@ jobs:
         with:
           arch: ${{ matrix.arch }}
           sdk: 10.0.22000.0
-          vsversion: 2019
 
       - name: Clone.
         uses: actions/checkout@v4
@@ -95,10 +94,10 @@ jobs:
       matrix:
         include:
           - arch: "x64"
-            runner: "windows-latest"
+            runner: "windows-2019"
             #runner: "t-desktop"
           - arch: "Win32"
-            runner: "windows-latest"
+            runner: "windows-2019"
 
     runs-on: ${{ matrix.runner }}
 
@@ -129,7 +128,6 @@ jobs:
         with:
           arch: ${{ matrix.arch }}
           sdk: 10.0.22000.0
-          vsversion: 2019
 
       - name: Clone.
         uses: actions/checkout@v4
