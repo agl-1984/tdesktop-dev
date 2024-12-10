@@ -7,6 +7,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "data/data_channel.h"
 
+#include "api/api_global_privacy.h"
 #include "data/data_changes.h"
 #include "data/data_channel_admins.h"
 #include "data/data_user.h"
@@ -165,6 +166,7 @@ void ChannelData::setFlags(ChannelDataFlags which) {
 	const auto taken = ((diff & Flag::Forum) && !(which & Flag::Forum))
 		? mgInfo->takeForumData()
 		: nullptr;
+	const auto wasIn = amIn();
 	if ((diff & Flag::Forum) && (which & Flag::Forum)) {
 		mgInfo->ensureForum(this);
 	}
@@ -174,8 +176,20 @@ void ChannelData::setFlags(ChannelDataFlags which) {
 			session().changes().peerUpdated(chat, UpdateFlag::Migration);
 			session().changes().peerUpdated(this, UpdateFlag::Migration);
 		}
+
+		if (wasIn && !amIn()) {
+			crl::on_main(&session(), [=] {
+				if (!amIn()) {
+					Core::App().closeChatFromWindows(this);
+				}
+			});
+		}
 	}
-	if (diff & (Flag::Forum | Flag::CallNotEmpty | Flag::SimilarExpanded)) {
+	if (diff & (Flag::Forum
+		| Flag::CallNotEmpty
+		| Flag::SimilarExpanded
+		| Flag::Signatures
+		| Flag::SignatureProfiles)) {
 		if (const auto history = this->owner().historyLoaded(this)) {
 			if (diff & Flag::CallNotEmpty) {
 				history->updateChatListEntry();
@@ -193,6 +207,12 @@ void ChannelData::setFlags(ChannelDataFlags which) {
 				if (const auto item = history->joinedMessageInstance()) {
 					history->owner().requestItemResize(item);
 				}
+			}
+			if (diff & Flag::SignatureProfiles) {
+				history->forceFullResize();
+			}
+			if (diff & (Flag::Signatures | Flag::SignatureProfiles)) {
+				session().changes().peerUpdated(this, UpdateFlag::Rights);
 			}
 		}
 	}
@@ -525,12 +545,9 @@ auto ChannelData::unavailableReasons() const
 	return _unavailableReasons;
 }
 
-void ChannelData::setUnavailableReasons(
+void ChannelData::setUnavailableReasonsList(
 		std::vector<Data::UnavailableReason> &&reasons) {
-	if (_unavailableReasons != reasons) {
-		_unavailableReasons = std::move(reasons);
-		session().changes().peerUpdated(this, UpdateFlag::UnavailableReason);
-	}
+	_unavailableReasons = std::move(reasons);
 }
 
 void ChannelData::setAvailableMinId(MsgId availableMinId) {
@@ -572,6 +589,10 @@ bool ChannelData::canEditStories() const {
 bool ChannelData::canDeleteStories() const {
 	return amCreator()
 		|| (adminRights() & AdminRight::DeleteStories);
+}
+
+bool ChannelData::canPostPaidMedia() const {
+	return canPostMessages() && (flags() & Flag::PaidMediaAllowed);
 }
 
 bool ChannelData::anyoneCanAddMembers() const {
@@ -951,9 +972,13 @@ PeerId ChannelData::groupCallDefaultJoinAs() const {
 
 void ChannelData::setAllowedReactions(Data::AllowedReactions value) {
 	if (_allowedReactions != value) {
+		if (value.paidEnabled) {
+			session().api().globalPrivacy().loadPaidReactionAnonymous();
+		}
 		const auto enabled = [](const Data::AllowedReactions &allowed) {
 			return (allowed.type != Data::AllowedReactionsType::Some)
-				|| !allowed.some.empty();
+				|| !allowed.some.empty()
+				|| allowed.paidEnabled;
 		};
 		const auto was = enabled(_allowedReactions);
 		_allowedReactions = std::move(value);
@@ -1013,6 +1038,14 @@ int ChannelData::levelHint() const {
 
 void ChannelData::updateLevelHint(int levelHint) {
 	_levelHint = levelHint;
+}
+
+TimeId ChannelData::subscriptionUntilDate() const {
+	return _subscriptionUntilDate;
+}
+
+void ChannelData::updateSubscriptionUntilDate(TimeId subscriptionUntilDate) {
+	_subscriptionUntilDate = subscriptionUntilDate;
 }
 
 namespace Data {
@@ -1075,7 +1108,9 @@ void ApplyChannelUpdate(
 		| Flag::ParticipantsHidden
 		| Flag::CanGetStatistics
 		| Flag::ViewAsMessages
-		| Flag::CanViewRevenue;
+		| Flag::CanViewRevenue
+		| Flag::PaidMediaAllowed
+		| Flag::CanViewCreditsRevenue;
 	channel->setFlags((channel->flags() & ~mask)
 		| (update.is_can_set_username() ? Flag::CanSetUsername : Flag())
 		| (update.is_can_view_participants()
@@ -1092,7 +1127,11 @@ void ApplyChannelUpdate(
 		| (update.is_view_forum_as_messages()
 			? Flag::ViewAsMessages
 			: Flag())
-		| (update.is_can_view_revenue() ? Flag::CanViewRevenue : Flag()));
+		| (update.is_paid_media_allowed() ? Flag::PaidMediaAllowed : Flag())
+		| (update.is_can_view_revenue() ? Flag::CanViewRevenue : Flag())
+		| (update.is_can_view_stars_revenue()
+			? Flag::CanViewCreditsRevenue
+			: Flag()));
 	channel->setUserpicPhoto(update.vchat_photo());
 	if (const auto migratedFrom = update.vmigrated_from_chat_id()) {
 		channel->addFlags(Flag::Megagroup);
@@ -1198,10 +1237,19 @@ void ApplyChannelUpdate(
 	}
 	channel->setThemeEmoji(qs(update.vtheme_emoticon().value_or_empty()));
 	channel->setTranslationDisabled(update.is_translations_disabled());
+
+	const auto reactionsLimit = update.vreactions_limit().value_or_empty();
 	if (const auto allowed = update.vavailable_reactions()) {
-		channel->setAllowedReactions(Data::Parse(*allowed));
+		auto parsed = Data::Parse(
+			*allowed,
+			reactionsLimit,
+			update.is_paid_reactions_available());
+		channel->setAllowedReactions(std::move(parsed));
 	} else {
-		channel->setAllowedReactions({});
+		channel->setAllowedReactions({
+			.maxCount = reactionsLimit,
+			.paidEnabled = update.is_paid_reactions_available(),
+		});
 	}
 	channel->owner().stories().apply(channel, update.vstories());
 	channel->fullUpdated();

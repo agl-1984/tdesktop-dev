@@ -8,6 +8,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "window/section_widget.h"
 
 #include "mainwidget.h"
+#include "mainwindow.h"
 #include "ui/ui_utility.h"
 #include "ui/chat/chat_theme.h"
 #include "ui/painter.h"
@@ -201,10 +202,12 @@ rpl::producer<const Data::WallPaper*> WallPaperResolved(
 		return result;
 	}
 	themes->refreshChatThemes();
-	return themes->chatThemesUpdated(
+	return rpl::single<const Data::WallPaper*>(
+		nullptr
+	) | rpl::then(themes->chatThemesUpdated(
 	) | rpl::take(1) | rpl::map([=] {
 		return fromThemes(true);
-	}) | rpl::flatten_latest();
+	}) | rpl::flatten_latest());
 }
 
 AbstractSectionWidget::AbstractSectionWidget(
@@ -454,7 +457,11 @@ void SectionWidget::showFinished() {
 	showChildren();
 	showFinishedHook();
 
-	setInnerFocus();
+	if (isAncestorOf(window()->focusWidget())) {
+		setInnerFocus();
+	} else {
+		controller()->widget()->setInnerFocus();
+	}
 }
 
 rpl::producer<int> SectionWidget::desiredHeight() const {

@@ -53,6 +53,12 @@ std::optional<QString> OnlineTextSpecial(not_null<UserData*> user) {
 	} else if (user->isSupport()) {
 		return tr::lng_status_support(tr::now);
 	} else if (user->isBot()) {
+		if (const auto count = user->botInfo->activeUsers) {
+			return tr::lng_bot_status_users(
+				tr::now,
+				lt_count_decimal,
+				count);
+		}
 		return tr::lng_status_bot(tr::now);
 	} else if (user->isServiceUser()) {
 		return tr::lng_status_support(tr::now);
@@ -65,14 +71,20 @@ std::optional<QString> OnlineTextCommon(LastseenStatus status, TimeId now) {
 		return tr::lng_status_online(tr::now);
 	} else if (status.isLongAgo()) {
 		return tr::lng_status_offline(tr::now);
-	} else if (status.isRecently() || status.isHidden()) {
+	} else if (status.isRecently()) {
 		return tr::lng_status_recently(tr::now);
 	} else if (status.isWithinWeek()) {
 		return tr::lng_status_last_week(tr::now);
 	} else if (status.isWithinMonth()) {
 		return tr::lng_status_last_month(tr::now);
+	} else if (status.isHidden()) {
+		return tr::lng_status_recently(tr::now);
 	}
 	return std::nullopt;
+}
+
+[[nodiscard]] int UniqueReactionsLimit(not_null<Main::AppConfig*> config) {
+	return config->get<int>("reactions_uniq_max", 11);
 }
 
 } // namespace
@@ -204,7 +216,7 @@ inline auto DefaultRestrictionValue(
 		ChatRestrictions rights,
 		bool forbidInForums) {
 	if (const auto user = peer->asUser()) {
-		if (user->isRepliesChat()) {
+		if (user->isRepliesChat() || user->isVerifyCodes()) {
 			return rpl::single(false);
 		}
 		using namespace rpl::mappers;
@@ -496,6 +508,10 @@ bool ChannelHasActiveCall(not_null<ChannelData*> channel) {
 	return (channel->flags() & ChannelDataFlag::CallNotEmpty);
 }
 
+bool ChannelHasSubscriptionUntilDate(ChannelData *channel) {
+	return channel && channel->subscriptionUntilDate() > 0;
+}
+
 rpl::producer<QImage> PeerUserpicImageValue(
 		not_null<PeerData*> peer,
 		int size,
@@ -526,10 +542,12 @@ rpl::producer<QImage> PeerUserpicImageValue(
 			}
 			state->key = key;
 			state->empty = false;
-			consumer.put_next(peer->generateUserpicImage(
-				state->view,
-				size,
-				radius));
+			consumer.put_next(
+				PeerData::GenerateUserpicImage(
+					peer,
+					state->view,
+					size,
+					radius));
 		};
 		peer->session().changes().peerFlagsValue(
 			peer,
@@ -562,21 +580,45 @@ const AllowedReactions &PeerAllowedReactions(not_null<PeerData*> peer) {
 	});
 }
 
-int UniqueReactionsLimit(not_null<Main::AppConfig*> config) {
-	return config->get<int>("reactions_uniq_max", 11);
-}
-
 int UniqueReactionsLimit(not_null<PeerData*> peer) {
+	if (const auto channel = peer->asChannel()) {
+		if (const auto limit = channel->allowedReactions().maxCount) {
+			return limit;
+		}
+	} else if (const auto chat = peer->asChat()) {
+		if (const auto limit = chat->allowedReactions().maxCount) {
+			return limit;
+		}
+	}
 	return UniqueReactionsLimit(&peer->session().appConfig());
 }
 
 rpl::producer<int> UniqueReactionsLimitValue(
 		not_null<PeerData*> peer) {
-	const auto config = &peer->session().appConfig();
-	return config->value(
-	) | rpl::map([=] {
+	auto configValue = peer->session().appConfig().value(
+	) | rpl::map([config = &peer->session().appConfig()] {
 		return UniqueReactionsLimit(config);
 	}) | rpl::distinct_until_changed();
+	if (const auto channel = peer->asChannel()) {
+		return rpl::combine(
+			PeerAllowedReactionsValue(peer),
+			std::move(configValue)
+		) | rpl::map([=](const auto &allowedReactions, int limit) {
+			return allowedReactions.maxCount
+				? allowedReactions.maxCount
+				: limit;
+		});
+	} else if (const auto chat = peer->asChat()) {
+		return rpl::combine(
+			PeerAllowedReactionsValue(peer),
+			std::move(configValue)
+		) | rpl::map([=](const auto &allowedReactions, int limit) {
+			return allowedReactions.maxCount
+				? allowedReactions.maxCount
+				: limit;
+		});
+	}
+	return configValue;
 }
 
 } // namespace Data

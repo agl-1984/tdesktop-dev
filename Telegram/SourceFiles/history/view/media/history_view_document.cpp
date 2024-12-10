@@ -300,12 +300,10 @@ Document::Document(
 		_transcribedRound = entry.shown;
 	}
 
-	auto caption = createCaption();
-
-	createComponents(!caption.isEmpty());
+	createComponents();
 	if (const auto named = Get<HistoryDocumentNamed>()) {
 		fillNamedFromData(named);
-		_tooltipFilename.setTooltipText(named->name);
+		_tooltipFilename.setTooltipText(named->name.toString());
 	}
 
 	if ((_data->isVoiceMessage() || isRound)
@@ -346,10 +344,6 @@ Document::Document(
 	}
 
 	setStatusSize(Ui::FileStatusSizeReady);
-
-	if (const auto captioned = Get<HistoryDocumentCaptioned>()) {
-		captioned->caption = std::move(caption);
-	}
 }
 
 Document::~Document() {
@@ -374,22 +368,16 @@ bool Document::dataLoaded() const {
 	return _dataMedia->loaded();
 }
 
-void Document::createComponents(bool caption) {
+void Document::createComponents() {
 	uint64 mask = 0;
 	if (_data->isVoiceMessage() || _transcribedRound) {
 		mask |= HistoryDocumentVoice::Bit();
 	} else {
 		mask |= HistoryDocumentNamed::Bit();
-		if (_data->hasThumbnail()) {
-			if (!_data->isSong()
-				&& !Data::IsExecutableName(_data->filename())) {
-				_data->loadThumbnail(_realParent->fullId());
-				mask |= HistoryDocumentThumbed::Bit();
-			}
+		if (_data->hasThumbnail() && !_data->isSong()) {
+			_data->loadThumbnail(_realParent->fullId());
+			mask |= HistoryDocumentThumbed::Bit();
 		}
-	}
-	if (caption) {
-		mask |= HistoryDocumentCaptioned::Bit();
 	}
 	UpdateComponents(mask);
 	if (const auto thumbed = Get<HistoryDocumentThumbed>()) {
@@ -418,24 +406,12 @@ void Document::createComponents(bool caption) {
 }
 
 void Document::fillNamedFromData(not_null<HistoryDocumentNamed*> named) {
-	const auto nameString = named->name = CleanTagSymbols(
-		Ui::Text::FormatSongNameFor(_data).string());
-	named->namew = st::semiboldFont->width(nameString);
+	named->name.setText(
+		st::semiboldTextStyle,
+		CleanTagSymbols(Ui::Text::FormatSongNameFor(_data).string()));
 }
 
 QSize Document::countOptimalSize() {
-	auto captioned = Get<HistoryDocumentCaptioned>();
-	if (_parent->media() != this && !_realParent->groupId()) {
-		if (captioned) {
-			RemoveComponents(HistoryDocumentCaptioned::Bit());
-			captioned = nullptr;
-		}
-	} else if (captioned && captioned->caption.hasSkipBlock()) {
-		captioned->caption.updateSkipBlock(
-			_parent->skipBlockWidth(),
-			_parent->skipBlockHeight());
-	}
-
 	auto hasTranscribe = false;
 	const auto voice = Get<HistoryDocumentVoice>();
 	if (voice) {
@@ -443,6 +419,7 @@ QSize Document::countOptimalSize() {
 		const auto session = &history->session();
 		const auto transcribes = &session->api().transcribes();
 		if (_parent->data()->media()->ttlSeconds()
+			|| _realParent->isScheduled()
 			|| (!session->premium()
 				&& !transcribes->freeFor(_realParent)
 				&& !transcribes->trialsSupport())) {
@@ -483,7 +460,7 @@ QSize Document::countOptimalSize() {
 					st::messageTextStyle,
 					text);
 				hasTranscribe = true;
-				if (const auto skipBlockWidth = captioned
+				if (const auto skipBlockWidth = _parent->hasVisibleText()
 					? 0
 					: _parent->skipBlockWidth()) {
 					voice->transcribeText.updateSkipBlock(
@@ -520,8 +497,8 @@ QSize Document::countOptimalSize() {
 		accumulate_max(maxWidth, tleft + MaxStatusWidth(_data) + unread + _parent->skipBlockWidth() + st::msgPadding.right());
 	}
 
-	if (auto named = Get<HistoryDocumentNamed>()) {
-		accumulate_max(maxWidth, tleft + named->namew + tright);
+	if (const auto named = Get<HistoryDocumentNamed>()) {
+		accumulate_max(maxWidth, tleft + named->name.maxWidth() + tright);
 		accumulate_min(maxWidth, st::msgMaxWidth);
 	}
 	if (voice && voice->transcribe) {
@@ -530,8 +507,16 @@ QSize Document::countOptimalSize() {
 	}
 
 	auto minHeight = st.padding.top() + st.thumbSize + st.padding.bottom();
-	if (!captioned && !hasTranscribe && _parent->bottomInfoIsWide()) {
-		minHeight += st::msgDateFont->height - st::msgDateDelta.y();
+	if (isBubbleBottom() && !hasTranscribe) {
+		if (const auto link = thumbedLinkMaxWidth()) {
+			accumulate_max(
+				maxWidth,
+				(tleft
+					+ link
+					+ st.thumbSkip
+					+ _parent->bottomInfoFirstLineWidth()
+					+ tright));
+		}
 	}
 	if (!isBubbleTop()) {
 		minHeight -= st::msgFileTopMinus;
@@ -542,17 +527,6 @@ QSize Document::countOptimalSize() {
 			- st::msgPadding.left()
 			- st::msgPadding.right();
 		minHeight += voice->transcribeText.countHeight(captionw);
-		if (captioned) {
-			minHeight += st::mediaCaptionSkip;
-		} else if (isBubbleBottom()) {
-			minHeight += st::msgPadding.bottom();
-		}
-	}
-	if (captioned) {
-		auto captionw = maxWidth
-			- st::msgPadding.left()
-			- st::msgPadding.right();
-		minHeight += captioned->caption.countHeight(captionw);
 		if (isBubbleBottom()) {
 			minHeight += st::msgPadding.bottom();
 		}
@@ -564,13 +538,30 @@ QSize Document::countCurrentSize(int newWidth) {
 	const auto captioned = Get<HistoryDocumentCaptioned>();
 	const auto voice = Get<HistoryDocumentVoice>();
 	const auto hasTranscribe = voice && !voice->transcribeText.isEmpty();
+	const auto thumbed = Get<HistoryDocumentThumbed>();
+	const auto &st = thumbed ? st::msgFileThumbLayout : st::msgFileLayout;
 	if (!captioned && !hasTranscribe) {
-		return File::countCurrentSize(newWidth);
+		auto result = File::countCurrentSize(newWidth);
+		if (isBubbleBottom()) {
+			if (const auto link = thumbedLinkMaxWidth()) {
+				const auto needed = st.padding.left()
+					+ st.thumbSize
+					+ st.thumbSkip
+					+ link
+					+ st.thumbSkip
+					+ _parent->bottomInfoFirstLineWidth()
+					+ st.padding.right();
+				if (result.width() < needed) {
+					result.setHeight(result.height()
+						+ st::msgDateFont->height
+						- st::msgDateDelta.y());
+				}
+			}
+		}
+		return result;
 	}
 
 	accumulate_min(newWidth, maxWidth());
-	const auto thumbed = Get<HistoryDocumentThumbed>();
-	const auto &st = thumbed ? st::msgFileThumbLayout : st::msgFileLayout;
 	auto newHeight = st.padding.top() + st.thumbSize + st.padding.bottom();
 	if (!isBubbleTop()) {
 		newHeight -= st::msgFileTopMinus;
@@ -885,16 +876,16 @@ void Document::draw(
 			progress,
 			inTTLViewer);
 		p.restore();
-	} else if (auto named = Get<HistoryDocumentNamed>()) {
-		p.setFont(st::semiboldFont);
+	} else if (const auto named = Get<HistoryDocumentNamed>()) {
 		p.setPen(stm->historyFileNameFg);
-		const auto elided = (namewidth < named->namew);
-		if (elided) {
-			p.drawTextLeft(nameleft, nametop, width, st::semiboldFont->elided(named->name, namewidth, Qt::ElideMiddle));
-		} else {
-			p.drawTextLeft(nameleft, nametop, width, named->name, named->namew);
-		}
-		_tooltipFilename.setElided(elided);
+		named->name.draw(p, {
+			.position = QPoint(nameleft, nametop),
+			.outerWidth = width,
+			.availableWidth = namewidth,
+			.elisionLines = 1,
+			.elisionMiddle = true,
+		});
+		_tooltipFilename.setElided(namewidth < named->name.maxWidth());
 	}
 
 	auto statusText = voiceStatusOverride.isEmpty() ? _statusText : voiceStatusOverride;
@@ -940,6 +931,7 @@ void Document::draw(
 			.pausedSpoiler = context.paused || On(PowerSaving::kChatSpoiler),
 			.selection = selection,
 			.highlight = highlightRequest ? &*highlightRequest : nullptr,
+			.useFullWidth = true,
 		});
 	}
 }
@@ -1416,6 +1408,20 @@ bool Document::uploading() const {
 	return _data->uploading();
 }
 
+[[nodiscard]] int Document::thumbedLinkMaxWidth() const {
+	if (Has<HistoryDocumentThumbed>()) {
+		const auto w = [](const QString &text) {
+			return st::semiboldFont->width(text.toUpper());
+		};
+		return std::max({
+			w(tr::lng_media_download(tr::now)),
+			w(tr::lng_media_open_with(tr::now)),
+			w(tr::lng_media_cancel(tr::now)),
+		});
+	}
+	return 0;
+}
+
 void Document::setStatusSize(int64 newSize, TimeId realDuration) const {
 	const auto duration = (_data->isSong()
 		|| _data->isVoiceMessage()
@@ -1523,10 +1529,36 @@ QMargins Document::bubbleMargins() const {
 	return QMargins(padding.left(), padding.top(), padding.right(), padding.bottom());
 }
 
-QSize Document::sizeForGroupingOptimal(int maxWidth) const {
+void Document::refreshCaption(bool last) {
+	const auto now = Get<HistoryDocumentCaptioned>();
+	auto caption = createCaption();
+	if (!caption.isEmpty()) {
+		if (now) {
+			return;
+		}
+		AddComponents(HistoryDocumentCaptioned::Bit());
+		auto captioned = Get<HistoryDocumentCaptioned>();
+		captioned->caption = std::move(caption);
+		const auto skip = last ? _parent->skipBlockWidth() : 0;
+		if (skip) {
+			captioned->caption.updateSkipBlock(
+				_parent->skipBlockWidth(),
+				_parent->skipBlockHeight());
+		} else {
+			captioned->caption.removeSkipBlock();
+		}
+	} else if (now) {
+		RemoveComponents(HistoryDocumentCaptioned::Bit());
+	}
+}
+
+QSize Document::sizeForGroupingOptimal(int maxWidth, bool last) const {
 	const auto thumbed = Get<HistoryDocumentThumbed>();
 	const auto &st = (thumbed ? st::msgFileThumbLayoutGrouped : st::msgFileLayoutGrouped);
 	auto height = st.padding.top() + st.thumbSize + st.padding.bottom();
+
+	const_cast<Document*>(this)->refreshCaption(last);
+
 	if (const auto captioned = Get<HistoryDocumentCaptioned>()) {
 		auto captionw = maxWidth
 			- st::msgPadding.left()
@@ -1649,24 +1681,7 @@ void Document::refreshParentId(not_null<HistoryItem*> realParent) {
 }
 
 void Document::parentTextUpdated() {
-	auto caption = (_parent->media() == this || _realParent->groupId())
-		? createCaption()
-		: Ui::Text::String();
-	if (!caption.isEmpty()) {
-		AddComponents(HistoryDocumentCaptioned::Bit());
-		auto captioned = Get<HistoryDocumentCaptioned>();
-		captioned->caption = std::move(caption);
-	} else {
-		RemoveComponents(HistoryDocumentCaptioned::Bit());
-	}
-	history()->owner().requestViewResize(_parent);
-}
-
-TextWithEntities Document::getCaption() const {
-	if (const auto captioned = Get<HistoryDocumentCaptioned>()) {
-		return captioned->caption.toTextWithEntities();
-	}
-	return TextWithEntities();
+	RemoveComponents(HistoryDocumentCaptioned::Bit());
 }
 
 void Document::hideSpoilers() {
@@ -1675,7 +1690,7 @@ void Document::hideSpoilers() {
 	}
 }
 
-Ui::Text::String Document::createCaption() {
+Ui::Text::String Document::createCaption() const {
 	return File::createCaption(_realParent);
 }
 

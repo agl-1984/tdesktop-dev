@@ -7,19 +7,21 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "platform/linux/specific_linux.h"
 
+#include "base/openssl_help.h"
 #include "base/random.h"
 #include "base/platform/base_platform_info.h"
 #include "base/platform/linux/base_linux_dbus_utilities.h"
 #include "base/platform/linux/base_linux_xdp_utilities.h"
 #include "ui/platform/ui_platform_window_title.h"
-#include "platform/linux/linux_wayland_integration.h"
 #include "lang/lang_keys.h"
 #include "mainwindow.h"
 #include "storage/localstorage.h"
 #include "core/launcher.h"
 #include "core/sandbox.h"
+#include "core/application.h"
 #include "core/core_settings.h"
 #include "core/update_checker.h"
+#include "window/window_controller.h"
 #include "webview/platform/linux/webview_linux_webkitgtk.h"
 
 #ifndef DESKTOP_APP_DISABLE_X11_INTEGRATION
@@ -53,7 +55,6 @@ namespace {
 using namespace gi::repository;
 namespace GObject = gi::repository::GObject;
 using namespace Platform;
-using Platform::internal::WaylandIntegration;
 
 void PortalAutostart(bool enabled, Fn<void(bool)> done) {
 	const auto executable = ExecutablePathForShortcuts();
@@ -93,10 +94,24 @@ void PortalAutostart(bool enabled, Fn<void(bool)> done) {
 			uniqueName.erase(0, 1);
 			uniqueName.replace(uniqueName.find('.'), 1, 1, '_');
 
-			const auto window = std::make_shared<QWidget>();
-			window->setAttribute(Qt::WA_DontShowOnScreen);
-			window->setWindowModality(Qt::ApplicationModal);
-			window->show();
+			const auto parent = []() -> QPointer<QWidget> {
+				const auto active = Core::App().activeWindow();
+				if (!active) {
+					return nullptr;
+				}
+
+				return active->widget().get();
+			}();
+
+			const auto window = std::make_shared<base::unique_qptr<QWidget>>(
+				std::in_place,
+				parent);
+
+			auto &raw = **window;
+			raw.setAttribute(Qt::WA_DontShowOnScreen);
+			raw.setWindowFlag(Qt::Window);
+			raw.setWindowModality(Qt::WindowModal);
+			raw.show();
 
 			XdpRequest::RequestProxy::new_(
 				proxy->get_connection(),
@@ -147,7 +162,6 @@ void PortalAutostart(bool enabled, Fn<void(bool)> done) {
 						});
 					});
 
-
 					std::vector<std::string> commandline;
 					commandline.push_back(executable.toStdString());
 					if (Core::Launcher::Instance().customWorkingDir()) {
@@ -157,7 +171,9 @@ void PortalAutostart(bool enabled, Fn<void(bool)> done) {
 					commandline.push_back("-autostart");
 
 					interface.call_request_background(
-						base::Platform::XDP::ParentWindowID(),
+						base::Platform::XDP::ParentWindowID(parent
+							? parent->windowHandle()
+							: nullptr),
 						GLib::Variant::new_array({
 							GLib::Variant::new_dict_entry(
 								GLib::Variant::new_string("handle_token"),
@@ -482,6 +498,16 @@ void InstallLauncher() {
 	});
 }
 
+[[nodiscard]] QByteArray HashForSocketPath(const QByteArray &data) {
+	constexpr auto kHashForSocketPathLength = 24;
+
+	const auto binary = openssl::Sha256(bytes::make_span(data));
+	const auto base64 = QByteArray(
+		reinterpret_cast<const char*>(binary.data()),
+		binary.size()).toBase64(QByteArray::Base64UrlEncoding);
+	return base64.mid(0, kHashForSocketPathLength);
+}
+
 } // namespace
 
 namespace Platform {
@@ -510,13 +536,7 @@ QString SingleInstanceLocalServerName(const QString &hash) {
 
 #if QT_VERSION < QT_VERSION_CHECK(6, 5, 0)
 std::optional<bool> IsDarkMode() {
-	const auto result = base::Platform::XDP::ReadSetting(
-		"org.freedesktop.appearance",
-		"color-scheme");
-
-	return result.has_value()
-		? std::make_optional(result->get_uint32() == 1)
-		: std::nullopt;
+	return std::nullopt;
 }
 #endif // Qt < 6.5.0
 
@@ -563,14 +583,10 @@ bool TrayIconSupported() {
 }
 
 bool SkipTaskbarSupported() {
-	if (const auto integration = WaylandIntegration::Instance()) {
-		return integration->skipTaskbarSupported();
-	}
-
 #ifndef DESKTOP_APP_DISABLE_X11_INTEGRATION
 	if (IsX11()) {
 		return base::Platform::XCB::IsSupportedByWM(
-			base::Platform::XCB::GetConnectionFromQt(),
+			base::Platform::XCB::Connection(),
 			"_NET_WM_STATE_SKIP_TASKBAR");
 	}
 #endif // !DESKTOP_APP_DISABLE_X11_INTEGRATION
@@ -692,8 +708,8 @@ void start() {
 
 	Webview::WebKitGTK::SetSocketPath(u"%1/%2-%3-webview-%4"_q.arg(
 		QDir::tempPath(),
-		h,
-		QCoreApplication::applicationName(),
+		HashForSocketPath(d),
+		u"TD"_q,//QCoreApplication::applicationName(), - make path smaller.
 		u"%1"_q).toStdString());
 
 	InstallLauncher();
@@ -759,9 +775,6 @@ QImage DefaultApplicationIcon() {
 namespace ThirdParty {
 
 void start() {
-}
-
-void finish() {
 }
 
 } // namespace ThirdParty

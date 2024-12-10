@@ -23,6 +23,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/wrap/slide_wrap.h"
 #include "ui/text/text_options.h"
 #include "ui/painter.h"
+#include "ui/ui_utility.h"
 #include "lang/lang_keys.h"
 #include "storage/file_download.h"
 #include "data/data_peer_values.h"
@@ -36,6 +37,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "styles/style_widgets.h"
 
 #include <xxhash.h> // XXH64.
+#include <QtWidgets/QApplication>
 
 [[nodiscard]] PeerListRowId UniqueRowIdFromString(const QString &d) {
 	return XXH64(d.data(), d.size() * sizeof(ushort), 0);
@@ -445,6 +447,8 @@ void PeerListBox::addSelectItem(
 		? tr::lng_saved_short(tr::now)
 		: (respect && peer->isRepliesChat())
 		? tr::lng_replies_messages(tr::now)
+		: (respect && peer->isVerifyCodes())
+		? tr::lng_verification_codes(tr::now)
 		: peer->shortName();
 	addSelectItem(
 		peer->id.value,
@@ -623,6 +627,8 @@ void PeerListRow::refreshName(const style::PeerListItem &st) {
 		? tr::lng_saved_messages(tr::now)
 		: _isRepliesMessagesChat
 		? tr::lng_replies_messages(tr::now)
+		: _isVerifyCodesChat
+		? tr::lng_verification_codes(tr::now)
 		: generateName();
 	_name.setText(st.nameStyle, text, Ui::NameTextOptions());
 }
@@ -693,6 +699,8 @@ QString PeerListRow::generateShortName() {
 		? tr::lng_saved_short(tr::now)
 		: _isRepliesMessagesChat
 		? tr::lng_replies_messages(tr::now)
+		: _isVerifyCodesChat
+		? tr::lng_verification_codes(tr::now)
 		: peer()->shortName();
 }
 
@@ -713,10 +721,11 @@ PaintRoundImageCallback PeerListRow::generatePaintUserpicCallback(
 		return ForceRoundUserpicCallback(peer);
 	}
 	return [=](Painter &p, int x, int y, int outerWidth, int size) mutable {
+		using namespace Ui;
 		if (saved) {
-			Ui::EmptyUserpic::PaintSavedMessages(p, x, y, outerWidth, size);
+			EmptyUserpic::PaintSavedMessages(p, x, y, outerWidth, size);
 		} else if (replies) {
-			Ui::EmptyUserpic::PaintRepliesMessages(p, x, y, outerWidth, size);
+			EmptyUserpic::PaintRepliesMessages(p, x, y, outerWidth, size);
 		} else {
 			peer->paintUserpicLeft(p, userpic, x, y, outerWidth, size);
 		}
@@ -734,6 +743,10 @@ auto PeerListRow::generateNameWords() const
 	return peer()->nameWords();
 }
 
+const style::PeerListItem &PeerListRow::computeSt(
+		const style::PeerListItem &st) const {
+	return st;
+}
 
 void PeerListRow::invalidatePixmapsCache() {
 	if (_checkbox) {
@@ -751,12 +764,14 @@ int PeerListRow::paintNameIconGetWidth(
 		int availableWidth,
 		int outerWidth,
 		bool selected) {
-	if (special()
+	if (_skipPeerBadge
+		|| special()
 		|| !_savedMessagesStatus.isEmpty()
-		|| _isRepliesMessagesChat) {
+		|| _isRepliesMessagesChat
+		|| _isVerifyCodesChat) {
 		return 0;
 	}
-	return _bagde.drawGetWidth(
+	return _badge.drawGetWidth(
 		p,
 		QRect(
 			nameLeft,
@@ -816,9 +831,14 @@ void PeerListRow::stopLastRipple() {
 	}
 }
 
-void PeerListRow::paintRipple(Painter &p, int x, int y, int outerWidth) {
+void PeerListRow::paintRipple(
+		Painter &p,
+		const style::PeerListItem &st,
+		int x,
+		int y,
+		int outerWidth) {
 	if (_ripple) {
-		_ripple->paint(p, x, y, outerWidth);
+		_ripple->paint(p, x, y, outerWidth, &st.button.ripple.color->c);
 		if (_ripple->empty()) {
 			_ripple.reset();
 		}
@@ -863,12 +883,13 @@ void PeerListRow::paintDisabledCheckUserpic(
 	auto iconBorderPen = st.checkbox.check.border->p;
 	iconBorderPen.setWidth(st.checkbox.selectWidth);
 
+	const auto size = userpicRadius * 2;
 	if (!_savedMessagesStatus.isEmpty()) {
-		Ui::EmptyUserpic::PaintSavedMessages(p, userpicLeft, userpicTop, outerWidth, userpicRadius * 2);
+		Ui::EmptyUserpic::PaintSavedMessages(p, userpicLeft, userpicTop, outerWidth, size);
 	} else if (_isRepliesMessagesChat) {
-		Ui::EmptyUserpic::PaintRepliesMessages(p, userpicLeft, userpicTop, outerWidth, userpicRadius * 2);
+		Ui::EmptyUserpic::PaintRepliesMessages(p, userpicLeft, userpicTop, outerWidth, size);
 	} else {
-		peer()->paintUserpicLeft(p, _userpic, userpicLeft, userpicTop, outerWidth, userpicRadius * 2);
+		peer()->paintUserpicLeft(p, _userpic, userpicLeft, userpicTop, outerWidth, size);
 	}
 
 	{
@@ -1039,11 +1060,9 @@ void PeerListContent::changeCheckState(
 		not_null<PeerListRow*> row,
 		bool checked,
 		anim::type animated) {
-	row->setChecked(
-		checked,
-		_st.item.checkbox,
-		animated,
-		[=] { updateRow(row); });
+	row->setChecked(checked, _st.item.checkbox, animated, [=] {
+		updateRow(row);
+	});
 }
 
 void PeerListContent::setRowHidden(not_null<PeerListRow*> row, bool hidden) {
@@ -1060,10 +1079,13 @@ void PeerListContent::setRowHidden(not_null<PeerListRow*> row, bool hidden) {
 void PeerListContent::addRowEntry(not_null<PeerListRow*> row) {
 	const auto savedMessagesStatus = _controller->savedMessagesChatStatus();
 	if (!savedMessagesStatus.isEmpty() && !row->special()) {
-		if (row->peer()->isSelf()) {
+		const auto peer = row->peer();
+		if (peer->isSelf()) {
 			row->setSavedMessagesChatStatus(savedMessagesStatus);
-		} else if (row->peer()->isRepliesChat()) {
+		} else if (peer->isRepliesChat()) {
 			row->setIsRepliesMessagesChat(true);
+		} else if (peer->isVerifyCodes()) {
+			row->setIsVerifyCodesChat(true);
 		}
 	}
 	_rowsById.emplace(row->id(), row);
@@ -1545,15 +1567,44 @@ void PeerListContent::handleMouseMove(QPoint globalPosition) {
 		&& *_lastMousePosition == globalPosition) {
 		return;
 	}
+	if (_trackPressStart
+		&& ((*_trackPressStart - globalPosition).manhattanLength()
+			> QApplication::startDragDistance())) {
+		_trackPressStart = {};
+		_controller->rowTrackPressCancel();
+	}
+	if (!_controller->rowTrackPressSkipMouseSelection()) {
+		selectByMouse(globalPosition);
+	}
+}
+
+void PeerListContent::pressLeftToContextMenu(bool shown) {
+	if (shown) {
+		setContexted(_pressed);
+		setPressed(Selected());
+	} else {
+		setContexted(Selected());
+	}
+}
+
+bool PeerListContent::trackRowPressFromGlobal(QPoint globalPosition) {
 	selectByMouse(globalPosition);
+	if (const auto row = getRow(_selected.index)) {
+		if (_controller->rowTrackPress(row)) {
+			_trackPressStart = globalPosition;
+			return true;
+		}
+	}
+	return false;
 }
 
 void PeerListContent::mousePressEvent(QMouseEvent *e) {
 	_pressButton = e->button();
 	selectByMouse(e->globalPos());
 	setPressed(_selected);
-	if (auto row = getRow(_selected.index)) {
-		auto updateCallback = [this, row, hint = _selected.index] {
+	_trackPressStart = {};
+	if (const auto row = getRow(_selected.index)) {
+		const auto updateCallback = [this, row, hint = _selected.index] {
 			updateRow(row, hint);
 		};
 		if (_selected.element) {
@@ -1579,8 +1630,11 @@ void PeerListContent::mousePressEvent(QMouseEvent *e) {
 				row->addRipple(_st.item, maskGenerator, point, std::move(updateCallback));
 			}
 		}
+		if (_pressButton == Qt::LeftButton && _controller->rowTrackPress(row)) {
+			_trackPressStart = e->globalPos();
+		}
 	}
-	if (anim::Disabled() && !_selected.element) {
+	if (anim::Disabled() && !_trackPressStart && !_selected.element) {
 		mousePressReleased(e->button());
 	}
 }
@@ -1590,6 +1644,9 @@ void PeerListContent::mouseReleaseEvent(QMouseEvent *e) {
 }
 
 void PeerListContent::mousePressReleased(Qt::MouseButton button) {
+	_trackPressStart = {};
+	_controller->rowTrackPressCancel();
+
 	updateRow(_pressed.index);
 	updateRow(_selected.index);
 
@@ -1691,7 +1748,9 @@ crl::time PeerListContent::paintRow(
 	const auto row = getRow(index);
 	Assert(row != nullptr);
 
-	row->lazyInitialize(_st.item);
+	const auto &st = row->computeSt(_st.item);
+
+	row->lazyInitialize(st);
 	const auto outerWidth = width();
 
 	auto refreshStatusAt = row->refreshStatusTime();
@@ -1719,8 +1778,8 @@ crl::time PeerListContent::paintRow(
 
 	const auto opacity = row->opacity();
 	const auto &bg = selected
-		? _st.item.button.textBgOver
-		: _st.item.button.textBg;
+		? st.button.textBgOver
+		: st.button.textBg;
 	if (opacity < 1.) {
 		p.setOpacity(opacity);
 	}
@@ -1731,36 +1790,37 @@ crl::time PeerListContent::paintRow(
 	});
 
 	p.fillRect(0, 0, outerWidth, _rowHeight, bg);
-	row->paintRipple(p, 0, 0, outerWidth);
+	row->paintRipple(p, st, 0, 0, outerWidth);
 	row->paintUserpic(
 		p,
-		_st.item,
-		_st.item.photoPosition.x(),
-		_st.item.photoPosition.y(),
+		st,
+		st.photoPosition.x(),
+		st.photoPosition.y(),
 		outerWidth);
 
 	p.setPen(st::contactsNameFg);
 
-	const auto skipRight = _st.item.photoPosition.x();
+	const auto skipRight = st.photoPosition.x();
 	const auto rightActionSize = row->rightActionSize();
 	const auto rightActionMargins = rightActionSize.isEmpty()
 		? QMargins()
 		: row->rightActionMargins();
 	const auto &name = row->name();
-	const auto namex = _st.item.namePosition.x();
-	const auto namey = _st.item.namePosition.y();
+	const auto namePosition = st.namePosition;
+	const auto namex = namePosition.x();
+	const auto namey = namePosition.y();
 	auto namew = outerWidth - namex - skipRight;
 	if (!rightActionSize.isEmpty()
 		&& (namey < rightActionMargins.top() + rightActionSize.height())
-		&& (namey + _st.item.nameStyle.font->height
+		&& (namey + st.nameStyle.font->height
 			> rightActionMargins.top())) {
 		namew -= rightActionMargins.left()
 			+ rightActionSize.width()
 			+ rightActionMargins.right()
 			- skipRight;
 	}
-	const auto statusx = _st.item.statusPosition.x();
-	const auto statusy = _st.item.statusPosition.y();
+	const auto statusx = st.statusPosition.x();
+	const auto statusy = st.statusPosition.y();
 	auto statusw = outerWidth - statusx - skipRight;
 	if (!rightActionSize.isEmpty()
 		&& (statusy < rightActionMargins.top() + rightActionSize.height())
@@ -1782,7 +1842,7 @@ crl::time PeerListContent::paintRow(
 		width(),
 		selected);
 	auto nameCheckedRatio = row->disabled() ? 0. : row->checkedRatio();
-	p.setPen(anim::pen(_st.item.nameFg, _st.item.nameFgChecked, nameCheckedRatio));
+	p.setPen(anim::pen(st.nameFg, st.nameFgChecked, nameCheckedRatio));
 	name.drawLeftElided(p, namex, namey, namew, width());
 
 	p.setFont(st::contactsStatusFont);
@@ -1801,17 +1861,17 @@ crl::time PeerListContent::paintRow(
 			if (highlightedWidth > availableWidth) {
 				highlightedPart = st::contactsStatusFont->elided(highlightedPart, availableWidth);
 			}
-			p.setPen(_st.item.statusFgActive);
+			p.setPen(st.statusFgActive);
 			p.drawTextLeft(statusx, statusy, width(), highlightedPart);
 		} else {
 			grayedPart = st::contactsStatusFont->elided(grayedPart, availableWidth - highlightedWidth);
-			p.setPen(_st.item.statusFgActive);
+			p.setPen(st.statusFgActive);
 			p.drawTextLeft(statusx, statusy, width(), highlightedPart);
-			p.setPen(selected ? _st.item.statusFgOver : _st.item.statusFg);
+			p.setPen(selected ? st.statusFgOver : st.statusFg);
 			p.drawTextLeft(statusx + highlightedWidth, statusy, width(), grayedPart);
 		}
 	} else {
-		row->paintStatusText(p, _st.item, statusx, statusy, statusw, width(), selected);
+		row->paintStatusText(p, st, statusx, statusy, statusw, width(), selected);
 	}
 
 	row->elementsPaint(
@@ -1884,6 +1944,13 @@ PeerListContent::SkipResult PeerListContent::selectSkip(int direction) {
 		}
 	}
 
+	if (_controller->overrideKeyboardNavigation(
+			direction,
+			_selected.index.value,
+			newSelectedIndex)) {
+		return { _selected.index.value, _selected.index.value };
+	}
+
 	_selected.index.value = newSelectedIndex;
 	_selected.element = 0;
 	if (newSelectedIndex >= 0) {
@@ -1907,8 +1974,28 @@ void PeerListContent::selectSkipPage(int height, int direction) {
 	selectSkip(rowsToSkip * direction);
 }
 
+void PeerListContent::selectLast() {
+	const auto rowsCount = shownRowsCount();
+	const auto newSelectedIndex = rowsCount - 1;
+	_selected.index.value = newSelectedIndex;
+	_selected.element = 0;
+	if (newSelectedIndex >= 0) {
+		auto top = (newSelectedIndex > 0) ? getRowTop(RowIndex(newSelectedIndex)) : 0;
+		auto bottom = (newSelectedIndex + 1 < rowsCount) ? getRowTop(RowIndex(newSelectedIndex + 1)) : height();
+		_scrollToRequests.fire({ top, bottom });
+	}
+
+	update();
+
+	_selectedIndex = _selected.index.value;
+}
+
 rpl::producer<int> PeerListContent::selectedIndexValue() const {
 	return _selectedIndex.value();
+}
+
+int PeerListContent::selectedIndex() const {
+	return _selectedIndex.current();
 }
 
 bool PeerListContent::hasSelection() const {
@@ -2093,6 +2180,16 @@ bool PeerListContent::submitted() {
 		}
 	}
 	return false;
+}
+
+PeerListRowId PeerListContent::updateFromParentDrag(QPoint globalPosition) {
+	selectByMouse(globalPosition);
+	const auto row = getRow(_selected.index);
+	return row ? row->id() : 0;
+}
+
+void PeerListContent::dragLeft() {
+	clearSelection();
 }
 
 void PeerListContent::visibleTopBottomUpdated(

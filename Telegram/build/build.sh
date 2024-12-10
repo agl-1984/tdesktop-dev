@@ -334,8 +334,11 @@ if [ "$BuildTarget" == "mac" ] || [ "$BuildTarget" == "macstore" ]; then
     echo "Done!"
 
     echo "Signing the application.."
-    if [ "$BuildTarget" == "mac" ]; then
-      # Use PTG Ceertificated from GitHub Secrets
+    if [ "$PTG_TESTBUILD" == "1" ]; then
+      # no certification - we ok for test
+      echo "Skip certification"
+    elif [ "$BuildTarget" == "mac" ]; then
+      # Use PTG Certificate from GitHub Secrets
       if [ ! -f "certificate.p12" ]; then
         echo $MACOS_CERTIFICATE | base64 --decode > certificate.p12
         security create-keychain -p ptelegram_pass build.keychain
@@ -350,7 +353,7 @@ if [ "$BuildTarget" == "mac" ] || [ "$BuildTarget" == "macstore" ]; then
       fi
       codesign --force --deep -s ${identity} "$ReleasePath/$BundleName" -v --entitlements "$HomePath/Telegram/Telegram.entitlements"
       
-      #codesign --force --deep --timestamp --options runtime --sign "Developer ID Application: John Preston" "$ReleasePath/$BundleName" --entitlements "$HomePath/Telegram/Telegram.entitlements"
+      #codesign --force --deep --timestamp --options runtime --sign "Developer ID Application: Telegram FZ-LLC (C67CF9S4VU)" "$ReleasePath/$BundleName" --entitlements "$HomePath/Telegram/Telegram.entitlements"
     elif [ "$BuildTarget" == "macstore" ]; then
       codesign --force --timestamp --options runtime --sign "3rd Party Mac Developer Application: Telegram FZ-LLC (C67CF9S4VU)" "$ReleasePath/$BundleName/Contents/Frameworks/Breakpad.framework/Versions/A/Resources/breakpadUtilities.dylib" --entitlements "$HomePath/Telegram/Breakpad.entitlements"
       codesign --force --deep --timestamp --options runtime --sign "3rd Party Mac Developer Application: Telegram FZ-LLC (C67CF9S4VU)" "$ReleasePath/$BundleName" --entitlements "$HomePath/Telegram/Telegram Lite.entitlements"

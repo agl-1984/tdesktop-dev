@@ -244,7 +244,10 @@ public:
 	void updateSavedGifs();
 	void updateMasks();
 	void updateCustomEmoji();
-	void requestRecentStickersForce(bool attached = false);
+	void requestSpecialStickersForce(
+		bool faved,
+		bool recent,
+		bool attached);
 	void setGroupStickerSet(
 		not_null<ChannelData*> megagroup,
 		const StickerSetIdentifier &set);
@@ -274,6 +277,10 @@ public:
 		Fn<void(not_null<PeerData*>, MsgId)> callback);
 
 	using SliceType = Data::LoadDirection;
+	void requestHistory(
+		not_null<History*> history,
+		MsgId messageId,
+		SliceType slice);
 	void requestSharedMedia(
 		not_null<PeerData*> peer,
 		MsgId topicRootId,
@@ -310,6 +317,7 @@ public:
 		QByteArray result,
 		VoiceWaveform waveform,
 		crl::time duration,
+		bool video,
 		const SendAction &action);
 	void sendFiles(
 		Ui::PreparedList &&list,
@@ -473,9 +481,10 @@ private:
 	void requestStickers(TimeId now);
 	void requestMasks(TimeId now);
 	void requestCustomEmoji(TimeId now);
-	void requestRecentStickers(TimeId now, bool attached = false);
-	void requestRecentStickersWithHash(uint64 hash, bool attached = false);
-	void requestFavedStickers(TimeId now);
+	void requestRecentStickers(
+		std::optional<TimeId> now,
+		bool attached);
+	void requestFavedStickers(std::optional<TimeId> now);
 	void requestFeaturedStickers(TimeId now);
 	void requestFeaturedEmoji(TimeId now);
 	void requestSavedGifs(TimeId now);
@@ -511,7 +520,8 @@ private:
 		not_null<PeerData*> peer,
 		bool justClear,
 		bool revoke);
-	void applyAffectedMessages(const MTPmessages_AffectedMessages &result) const;
+	void applyAffectedMessages(
+		const MTPmessages_AffectedMessages &result) const;
 
 	void deleteAllFromParticipantSend(
 		not_null<ChannelData*> channel,
@@ -539,6 +549,10 @@ private:
 		const MTPInputMedia &media,
 		Api::SendOptions options,
 		uint64 randomId,
+		Fn<void(bool)> done = nullptr);
+	void sendMultiPaidMedia(
+		not_null<HistoryItem*> item,
+		not_null<SendingAlbum*> album,
 		Fn<void(bool)> done = nullptr);
 
 	void getTopPromotionDelayed(TimeId now, TimeId next);
@@ -644,6 +658,17 @@ private:
 			const SharedMediaRequest&) = default;
 	};
 	base::flat_set<SharedMediaRequest> _sharedMediaRequests;
+
+	struct HistoryRequest {
+		not_null<PeerData*> peer;
+		MsgId aroundId = 0;
+		SliceType sliceType = {};
+
+		friend inline auto operator<=>(
+			const HistoryRequest&,
+			const HistoryRequest&) = default;
+	};
+	base::flat_set<HistoryRequest> _historyRequests;
 
 	std::unique_ptr<DialogsLoadState> _dialogsLoadState;
 	TimeId _dialogsLoadTill = 0;

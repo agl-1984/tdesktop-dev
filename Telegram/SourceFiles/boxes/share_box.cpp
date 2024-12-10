@@ -23,6 +23,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/text/text_options.h"
 #include "ui/text/text_utilities.h"
 #include "ui/painter.h"
+#include "ui/ui_utility.h"
 #include "chat_helpers/message_field.h"
 #include "menu/menu_check_item.h"
 #include "menu/menu_send.h"
@@ -237,17 +238,27 @@ void ShareBox::prepareCommentField() {
 	const auto field = _comment->entity();
 
 	field->submits(
-	) | rpl::start_with_next([=] { submit({}); }, field->lifetime());
+	) | rpl::start_with_next([=] {
+		submit({});
+	}, field->lifetime());
+
 	if (const auto show = uiShow(); show->valid()) {
-		InitMessageFieldHandlers(
-			_descriptor.session,
-			Main::MakeSessionShow(show, _descriptor.session),
-			field,
-			nullptr,
-			nullptr,
-			_descriptor.stLabel);
+		InitMessageFieldHandlers({
+			.session = _descriptor.session,
+			.show = Main::MakeSessionShow(show, _descriptor.session),
+			.field = field,
+			.fieldStyle = _descriptor.stLabel,
+		});
 	}
 	field->setSubmitSettings(Core::App().settings().sendSubmitWay());
+
+	field->changes() | rpl::start_with_next([=] {
+		if (!field->getLastText().isEmpty()) {
+			setCloseByOutsideClick(false);
+		} else if (_inner->selected().empty()) {
+			setCloseByOutsideClick(true);
+		}
+	}, field->lifetime());
 
 	Ui::SendPendingMoveResizeEvents(_comment);
 	if (_bottomWidget) {
@@ -257,8 +268,6 @@ void ShareBox::prepareCommentField() {
 
 void ShareBox::prepare() {
 	prepareCommentField();
-
-	setCloseByOutsideClick(false);
 
 	_select->resizeToWidth(st::boxWideWidth);
 	Ui::SendPendingMoveResizeEvents(_select);
@@ -316,6 +325,12 @@ void ShareBox::prepare() {
 			not_null<Data::Thread*> thread,
 			bool checked) {
 		innerSelectedChanged(thread, checked);
+		if (checked) {
+			setCloseByOutsideClick(false);
+		} else if (_inner->selected().empty()
+			&& _comment->entity()->getLastText().isEmpty()) {
+			setCloseByOutsideClick(true);
+		}
 	});
 
 	Ui::Emoji::SuggestionsController::Init(
@@ -461,15 +476,18 @@ void ShareBox::keyPressEvent(QKeyEvent *e) {
 	}
 }
 
-SendMenu::Type ShareBox::sendMenuType() const {
+SendMenu::Details ShareBox::sendMenuDetails() const {
 	const auto selected = _inner->selected();
-	return ranges::all_of(
+	const auto type = ranges::all_of(
 		selected | ranges::views::transform(&Data::Thread::peer),
 		HistoryView::CanScheduleUntilOnline)
 		? SendMenu::Type::ScheduledToUser
 		: (selected.size() == 1 && selected.front()->peer()->isSelf())
 		? SendMenu::Type::Reminder
 		: SendMenu::Type::Scheduled;
+
+	// We can't support effect here because we don't have ChatHelpers::Show.
+	return { .type = type, .effectAllowed = false };
 }
 
 void ShareBox::showMenu(not_null<Ui::RpWidget*> parent) {
@@ -506,16 +524,39 @@ void ShareBox::showMenu(not_null<Ui::RpWidget*> parent) {
 		_menu->addSeparator();
 	}
 
-	const auto result = SendMenu::FillSendMenu(
+	using namespace SendMenu;
+	const auto sendAction = crl::guard(this, [=](Action action, Details) {
+		if (action.type == ActionType::Send) {
+			submit(action.options);
+			return;
+		}
+		if (action.type == ActionType::DeleteWhenRead) {
+			uiShow()->showBox(FakePasscode::AutoDeleteBox(this,
+					[=](Api::SendOptions options) { submit(options); },
+					_descriptor.scheduleBoxStyle.chooseDateTimeArgs),
+				Ui::LayerOption::KeepOther);
+			return;
+		}
+		uiShow()->showBox(
+			HistoryView::PrepareScheduleBox(
+				this,
+				nullptr, // ChatHelpers::Show for effect attachment.
+				sendMenuDetails(),
+				[=](Api::SendOptions options) { submit(options); },
+				action.options,
+				HistoryView::DefaultScheduleTime(),
+				_descriptor.scheduleBoxStyle));
+	});
+	_menu->setForcedVerticalOrigin(Ui::PopupMenu::VerticalOrigin::Bottom);
+	const auto result = FillSendMenu(
 		_menu.get(),
-		sendMenuType(),
-		[=] { submitSilent(); },
-		[=] { submitScheduled(); },
-		[=] { submitAutoDelete(); },
-		[=] { submitWhenOnline(); });
-	const auto success = (result == SendMenu::FillMenuResult::Success);
-	if (_descriptor.forwardOptions.show || success) {
-		_menu->setForcedVerticalOrigin(Ui::PopupMenu::VerticalOrigin::Bottom);
+		nullptr, // showForEffect.
+		sendMenuDetails(),
+		sendAction);
+	if (result == SendMenu::FillMenuResult::Prepared) {
+		_menu->popupPrepared();
+	} else if (_descriptor.forwardOptions.show
+		&& result != SendMenu::FillMenuResult::Failed) {
 		_menu->popup(QCursor::pos());
 	}
 }
@@ -594,32 +635,6 @@ void ShareBox::submit(Api::SendOptions options) {
 			options,
 			forwardOptions);
 	}
-}
-
-void ShareBox::submitSilent() {
-	submit({ .silent = true });
-}
-
-void ShareBox::submitScheduled() {
-	const auto callback = [=](Api::SendOptions options) { submit(options); };
-	uiShow()->showBox(
-		HistoryView::PrepareScheduleBox(
-			this,
-			sendMenuType(),
-			callback,
-			HistoryView::DefaultScheduleTime(),
-			_descriptor.scheduleBoxStyle));
-}
-
-void ShareBox::submitWhenOnline() {
-	submit(Api::DefaultSendWhenOnlineOptions());
-}
-
-void ShareBox::submitAutoDelete() {
-    const auto callback = [=](Api::SendOptions options) { submit(options); };
-	uiShow()->showBox(
-		FakePasscode::AutoDeleteBox(this, callback, _descriptor.scheduleBoxStyle.chooseDateTimeArgs),
-		Ui::LayerOption::KeepOther);
 }
 
 void ShareBox::copyLink() const {
@@ -832,6 +847,8 @@ void ShareBox::Inner::updateChatName(not_null<Chat*> chat) {
 		? tr::lng_saved_messages(tr::now)
 		: peer->isRepliesChat()
 		? tr::lng_replies_messages(tr::now)
+		: peer->isVerifyCodes()
+		? tr::lng_verification_codes(tr::now)
 		: peer->name();
 	chat->name.setText(_st.item.nameStyle, text, Ui::NameTextOptions());
 }
@@ -1404,55 +1421,6 @@ std::vector<not_null<Data::Thread*>> ShareBox::Inner::selected() const {
 	return result;
 }
 
-QString AppendShareGameScoreUrl(
-		not_null<Main::Session*> session,
-		const QString &url,
-		const FullMsgId &fullId) {
-	auto shareHashData = QByteArray(0x20, Qt::Uninitialized);
-	auto shareHashDataInts = reinterpret_cast<uint64*>(shareHashData.data());
-	const auto peer = fullId.peer
-		? session->data().peerLoaded(fullId.peer)
-		: static_cast<PeerData*>(nullptr);
-	const auto channelAccessHash = uint64((peer && peer->isChannel())
-		? peer->asChannel()->access
-		: 0);
-	shareHashDataInts[0] = session->userId().bare;
-	shareHashDataInts[1] = fullId.peer.value;
-	shareHashDataInts[2] = uint64(fullId.msg.bare);
-	shareHashDataInts[3] = channelAccessHash;
-
-	// Count SHA1() of data.
-	auto key128Size = 0x10;
-	auto shareHashEncrypted = QByteArray(key128Size + shareHashData.size(), Qt::Uninitialized);
-	hashSha1(shareHashData.constData(), shareHashData.size(), shareHashEncrypted.data());
-
-	//// Mix in channel access hash to the first 64 bits of SHA1 of data.
-	//*reinterpret_cast<uint64*>(shareHashEncrypted.data()) ^= channelAccessHash;
-
-	// Encrypt data.
-	if (!session->local().encrypt(shareHashData.constData(), shareHashEncrypted.data() + key128Size, shareHashData.size(), shareHashEncrypted.constData())) {
-		return url;
-	}
-
-	auto shareHash = shareHashEncrypted.toBase64(QByteArray::Base64UrlEncoding | QByteArray::OmitTrailingEquals);
-	auto shareUrl = u"tg://share_game_score?hash="_q + QString::fromLatin1(shareHash);
-
-	auto shareComponent = u"tgShareScoreUrl="_q + qthelp::url_encode(shareUrl);
-
-	auto hashPosition = url.indexOf('#');
-	if (hashPosition < 0) {
-		return url + '#' + shareComponent;
-	}
-	auto hash = url.mid(hashPosition + 1);
-	if (hash.indexOf('=') >= 0 || hash.indexOf('?') >= 0) {
-		return url + '&' + shareComponent;
-	}
-	if (!hash.isEmpty()) {
-		return url + '?' + shareComponent;
-	}
-	return url + shareComponent;
-}
-
 ChatHelpers::ForwardedMessagePhraseArgs CreateForwardedMessagePhraseArgs(
 		const std::vector<not_null<Data::Thread*>> &result,
 		const MessageIdsList &msgIds) {
@@ -1608,9 +1576,8 @@ ShareBox::SubmitCallback ShareBox::DefaultForwardCallback(
 }
 
 void FastShareMessage(
-		not_null<Window::SessionController*> controller,
+		std::shared_ptr<Main::SessionShow> show,
 		not_null<HistoryItem*> item) {
-	const auto show = controller->uiShow();
 	const auto history = item->history();
 	const auto owner = &history->owner();
 	const auto session = &history->session();
@@ -1639,7 +1606,7 @@ void FastShareMessage(
 		}
 		if (item->hasDirectLink()) {
 			using namespace HistoryView;
-			CopyPostLink(controller, item->fullId(), Context::History);
+			CopyPostLink(show, item->fullId(), Context::History);
 		} else if (const auto bot = item->getMessageBot()) {
 			if (const auto media = item->media()) {
 				if (const auto game = media->game()) {
@@ -1671,134 +1638,125 @@ void FastShareMessage(
 	auto copyLinkCallback = canCopyLink
 		? Fn<void()>(std::move(copyCallback))
 		: Fn<void()>();
-	controller->show(
+	show->show(Box<ShareBox>(ShareBox::Descriptor{
+		.session = session,
+		.copyCallback = std::move(copyLinkCallback),
+		.submitCallback = ShareBox::DefaultForwardCallback(
+			show,
+			history,
+			msgIds),
+		.filterCallback = std::move(filterCallback),
+		.forwardOptions = {
+			.sendersCount = ItemsForwardSendersCount(items),
+			.captionsCount = ItemsForwardCaptionsCount(items),
+			.show = !hasOnlyForcedForwardedInfo,
+		},
+		.premiumRequiredError = SharePremiumRequiredError(),
+	}), Ui::LayerOption::CloseOther);
+}
+
+void FastShareMessage(
+		not_null<Window::SessionController*> controller,
+		not_null<HistoryItem*> item) {
+	FastShareMessage(controller->uiShow(), item);
+}
+
+void FastShareLink(
+		not_null<Window::SessionController*> controller,
+		const QString &url) {
+	FastShareLink(controller->uiShow(), url);
+}
+
+void FastShareLink(
+		std::shared_ptr<Main::SessionShow> show,
+		const QString &url) {
+	const auto box = std::make_shared<QPointer<Ui::BoxContent>>();
+	const auto sending = std::make_shared<bool>();
+	auto copyCallback = [=] {
+		QGuiApplication::clipboard()->setText(url);
+		show->showToast(tr::lng_background_link_copied(tr::now));
+	};
+	auto submitCallback = [=](
+			std::vector<not_null<::Data::Thread*>> &&result,
+			TextWithTags &&comment,
+			Api::SendOptions options,
+			::Data::ForwardOptions) {
+		if (*sending || result.empty()) {
+			return;
+		}
+
+		const auto error = [&] {
+			for (const auto thread : result) {
+				const auto error = GetErrorTextForSending(
+					thread,
+					{ .text = &comment });
+				if (!error.isEmpty()) {
+					return std::make_pair(error, thread);
+				}
+			}
+			return std::make_pair(QString(), result.front());
+		}();
+		if (!error.first.isEmpty()) {
+			auto text = TextWithEntities();
+			if (result.size() > 1) {
+				text.append(
+					Ui::Text::Bold(error.second->chatListName())
+				).append("\n\n");
+			}
+			text.append(error.first);
+			if (const auto weak = *box) {
+				weak->getDelegate()->show(Ui::MakeConfirmBox({
+					.text = text,
+					.inform = true,
+				}));
+			}
+			return;
+		}
+
+		*sending = true;
+		if (!comment.text.isEmpty()) {
+			comment.text = url + "\n" + comment.text;
+			const auto add = url.size() + 1;
+			for (auto &tag : comment.tags) {
+				tag.offset += add;
+			}
+		} else {
+			comment.text = url;
+		}
+		auto &api = show->session().api();
+		for (const auto thread : result) {
+			auto message = Api::MessageToSend(
+				Api::SendAction(thread, options));
+			message.textWithTags = comment;
+			message.action.clearDraft = false;
+			api.sendMessage(std::move(message));
+		}
+		if (*box) {
+			(*box)->closeBox();
+		}
+		show->showToast(tr::lng_share_done(tr::now));
+	};
+	auto filterCallback = [](not_null<::Data::Thread*> thread) {
+		if (const auto user = thread->peer()->asUser()) {
+			if (user->canSendIgnoreRequirePremium()) {
+				return true;
+			}
+		}
+		return ::Data::CanSend(thread, ChatRestriction::SendOther);
+	};
+	*box = show->show(
 		Box<ShareBox>(ShareBox::Descriptor{
-			.session = session,
-			.copyCallback = std::move(copyLinkCallback),
-			.submitCallback = ShareBox::DefaultForwardCallback(
-				show,
-				history,
-				msgIds),
+			.session = &show->session(),
+			.copyCallback = std::move(copyCallback),
+			.submitCallback = std::move(submitCallback),
 			.filterCallback = std::move(filterCallback),
-			.forwardOptions = {
-				.sendersCount = ItemsForwardSendersCount(items),
-				.captionsCount = ItemsForwardCaptionsCount(items),
-				.show = !hasOnlyForcedForwardedInfo,
-			},
 			.premiumRequiredError = SharePremiumRequiredError(),
 		}),
-		Ui::LayerOption::CloseOther);
+		Ui::LayerOption::KeepOther,
+		anim::type::normal);
 }
 
 auto SharePremiumRequiredError()
 -> Fn<RecipientPremiumRequiredError(not_null<UserData*>)> {
 	return WritePremiumRequiredError;
-}
-
-void ShareGameScoreByHash(
-		not_null<Window::SessionController*> controller,
-		const QString &hash) {
-	auto &session = controller->session();
-	auto key128Size = 0x10;
-
-	auto hashEncrypted = QByteArray::fromBase64(hash.toLatin1(), QByteArray::Base64UrlEncoding | QByteArray::OmitTrailingEquals);
-	if (hashEncrypted.size() <= key128Size || (hashEncrypted.size() != key128Size + 0x20)) {
-		controller->show(
-			Ui::MakeInformBox(tr::lng_confirm_phone_link_invalid()),
-			Ui::LayerOption::CloseOther);
-		return;
-	}
-
-	// Decrypt data.
-	auto hashData = QByteArray(hashEncrypted.size() - key128Size, Qt::Uninitialized);
-	if (!session.local().decrypt(hashEncrypted.constData() + key128Size, hashData.data(), hashEncrypted.size() - key128Size, hashEncrypted.constData())) {
-		return;
-	}
-
-	// Count SHA1() of data.
-	char dataSha1[20] = { 0 };
-	hashSha1(hashData.constData(), hashData.size(), dataSha1);
-
-	//// Mix out channel access hash from the first 64 bits of SHA1 of data.
-	//auto channelAccessHash = *reinterpret_cast<uint64*>(hashEncrypted.data()) ^ *reinterpret_cast<uint64*>(dataSha1);
-
-	//// Check next 64 bits of SHA1() of data.
-	//auto skipSha1Part = sizeof(channelAccessHash);
-	//if (memcmp(dataSha1 + skipSha1Part, hashEncrypted.constData() + skipSha1Part, key128Size - skipSha1Part) != 0) {
-	//	Ui::show(Box<Ui::InformBox>(tr::lng_share_wrong_user(tr::now)));
-	//	return;
-	//}
-
-	// Check 128 bits of SHA1() of data.
-	if (memcmp(dataSha1, hashEncrypted.constData(), key128Size) != 0) {
-		controller->show(
-			Ui::MakeInformBox(tr::lng_share_wrong_user()),
-			Ui::LayerOption::CloseOther);
-		return;
-	}
-
-	auto hashDataInts = reinterpret_cast<uint64*>(hashData.data());
-	if (hashDataInts[0] != session.userId().bare) {
-		controller->show(
-			Ui::MakeInformBox(tr::lng_share_wrong_user()),
-			Ui::LayerOption::CloseOther);
-		return;
-	}
-
-	const auto peerId = PeerId(hashDataInts[1]);
-	const auto channelAccessHash = hashDataInts[3];
-	if (!peerIsChannel(peerId) && channelAccessHash) {
-		// If there is no channel id, there should be no channel access_hash.
-		controller->show(
-			Ui::MakeInformBox(tr::lng_share_wrong_user()),
-			Ui::LayerOption::CloseOther);
-		return;
-	}
-
-	const auto msgId = MsgId(int64(hashDataInts[2]));
-	if (const auto item = session.data().message(peerId, msgId)) {
-		FastShareMessage(controller, item);
-	} else {
-		const auto weak = base::make_weak(controller);
-		const auto resolveMessageAndShareScore = crl::guard(weak, [=](
-				PeerData *peer) {
-			auto done = crl::guard(weak, [=] {
-				const auto item = weak->session().data().message(
-					peerId,
-					msgId);
-				if (item) {
-					FastShareMessage(weak.get(), item);
-				} else {
-					weak->show(
-						Ui::MakeInformBox(tr::lng_edit_deleted()),
-						Ui::LayerOption::CloseOther);
-				}
-			});
-			auto &api = weak->session().api();
-			api.requestMessageData(peer, msgId, std::move(done));
-		});
-
-		const auto peer = peerIsChannel(peerId)
-			? controller->session().data().peerLoaded(peerId)
-			: nullptr;
-		if (peer || !peerIsChannel(peerId)) {
-			resolveMessageAndShareScore(peer);
-		} else {
-			const auto owner = &controller->session().data();
-			controller->session().api().request(MTPchannels_GetChannels(
-				MTP_vector<MTPInputChannel>(
-					1,
-					MTP_inputChannel(
-						MTP_long(peerToChannel(peerId).bare),
-						MTP_long(channelAccessHash)))
-			)).done([=](const MTPmessages_Chats &result) {
-				result.match([&](const auto &data) {
-					owner->processChats(data.vchats());
-				});
-				if (const auto peer = owner->peerLoaded(peerId)) {
-					resolveMessageAndShareScore(peer);
-				}
-			}).send();
-		}
-	}
 }

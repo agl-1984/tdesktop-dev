@@ -123,7 +123,7 @@ ReplyArea::ReplyArea(not_null<Controller*> controller)
 			showPremiumToast(emoji);
 		},
 		.mode = HistoryView::ComposeControlsMode::Normal,
-		.sendMenuType = SendMenu::Type::SilentOnly,
+		.sendMenuDetails = sendMenuDetails(),
 		.stickerOrEmojiChosen = _controller->stickerOrEmojiChosen(),
 		.customPlaceholder = PlaceholderText(
 			_controller->uiShow(),
@@ -244,6 +244,7 @@ void ReplyArea::sendVoice(VoiceToSend &&data) {
 		data.bytes,
 		data.waveform,
 		data.duration,
+		data.video,
 		std::move(action));
 
 	_controls->clearListenState();
@@ -252,7 +253,7 @@ void ReplyArea::sendVoice(VoiceToSend &&data) {
 
 bool ReplyArea::sendExistingDocument(
 		not_null<DocumentData*> document,
-		Api::SendOptions options,
+		Api::MessageToSend messageToSend,
 		std::optional<MsgId> localId) {
 	Expects(_data.peer != nullptr);
 
@@ -268,10 +269,7 @@ bool ReplyArea::sendExistingDocument(
 		return false;
 	}
 
-	Api::SendExistingDocument(
-		Api::MessageToSend(prepareSendAction(options)),
-		document,
-		localId);
+	Api::SendExistingDocument(std::move(messageToSend), document, localId);
 
 	_controls->cancelReplyMessage();
 	finishSending();
@@ -431,7 +429,7 @@ void ReplyArea::chooseAttach(
 	}
 
 	const auto filter = (overrideSendImagesAsPhotos == true)
-		? FileDialog::ImagesOrAllFilter()
+		? FileDialog::PhotoVideoFilesFilter()
 		: FileDialog::AllOrImagesFilter();
 	const auto weak = make_weak(&_shownPeerGuard);
 	const auto callback = [=](FileDialog::OpenResult &&result) {
@@ -471,6 +469,15 @@ void ReplyArea::chooseAttach(
 		filter,
 		crl::guard(this, callback),
 		crl::guard(this, [=] { _choosingAttach = false; }));
+}
+
+Fn<SendMenu::Details()> ReplyArea::sendMenuDetails() const {
+	return crl::guard(this, [=] {
+		return SendMenu::Details{
+			.type = SendMenu::Type::SilentOnly,
+			.effectAllowed = _data.peer && _data.peer->isUser(),
+		};
+	});
 }
 
 bool ReplyArea::confirmSendingFiles(
@@ -528,7 +535,7 @@ bool ReplyArea::confirmSendingFiles(
 		.limits = DefaultLimitsForPeer(_data.peer),
 		.check = DefaultCheckForPeer(show, _data.peer),
 		.sendType = Api::SendType::Normal,
-		.sendMenuType = SendMenu::Type::SilentOnly,
+		.sendMenuDetails = sendMenuDetails(),
 		.stOverride = &st::storiesComposeControls,
 		.confirmed = crl::guard(this, confirmed),
 		.cancelled = _controls->restoreTextCallback(insertTextOnCancel),
@@ -624,8 +631,13 @@ void ReplyArea::initActions() {
 	_controls->fileChosen(
 	) | rpl::start_with_next([=](ChatHelpers::FileChosen data) {
 		_controller->uiShow()->hideLayer();
-		const auto localId = data.messageSendingFrom.localId;
-		sendExistingDocument(data.document, data.options, localId);
+		auto messageToSend = Api::MessageToSend(
+			prepareSendAction(data.options));
+		messageToSend.textWithTags = base::take(data.caption);
+		sendExistingDocument(
+			data.document,
+			std::move(messageToSend),
+			data.messageSendingFrom.localId);
 	}, _lifetime);
 
 	_controls->photoChosen(

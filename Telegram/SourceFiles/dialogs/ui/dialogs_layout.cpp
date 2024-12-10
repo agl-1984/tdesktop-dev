@@ -11,6 +11,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "data/data_forum_topic.h"
 #include "data/data_saved_sublist.h"
 #include "data/data_session.h"
+#include "data/stickers/data_custom_emoji.h"
 #include "dialogs/dialogs_list.h"
 #include "dialogs/dialogs_three_state_icon.h"
 #include "dialogs/ui/dialogs_video_userpic.h"
@@ -18,6 +19,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "styles/style_window.h"
 #include "storage/localstorage.h"
 #include "ui/empty_userpic.h"
+#include "ui/text/format_values.h"
 #include "ui/text/text_options.h"
 #include "ui/text/text_utilities.h"
 #include "ui/unread_badge.h"
@@ -44,12 +46,13 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 namespace Dialogs::Ui {
 namespace {
 
-// Show all dates that are in the last 20 hours in time format.
-constexpr int kRecentlyInSeconds = 20 * 3600;
 const auto kPsaBadgePrefix = "cloud_lng_badge_psa_";
 
 [[nodiscard]] bool ShowUserBotIcon(not_null<UserData*> user) {
-	return user->isBot() && !user->isSupport() && !user->isRepliesChat();
+	return user->isBot()
+		&& !user->isSupport()
+		&& !user->isRepliesChat()
+		&& !user->isVerifyCodes();
 }
 
 [[nodiscard]] bool ShowSendActionInDialogs(Data::Thread *thread) {
@@ -79,29 +82,6 @@ void PaintRowTopRight(
 		rectForName.left() + rectForName.width() + st::dialogsDateSkip,
 		rectForName.top() + st::semiboldFont->height - st::normalFont->descent,
 		text);
-}
-
-void PaintRowDate(
-		QPainter &p,
-		QDateTime date,
-		QRect &rectForName,
-		const PaintContext &context) {
-	const auto now = QDateTime::currentDateTime();
-	const auto &lastTime = date;
-	const auto nowDate = now.date();
-	const auto lastDate = lastTime.date();
-
-	const auto dt = [&] {
-		if ((lastDate == nowDate)
-			|| (qAbs(lastTime.secsTo(now)) < kRecentlyInSeconds)) {
-			return QLocale().toString(lastTime.time(), QLocale::ShortFormat);
-		} else if (qAbs(lastDate.daysTo(nowDate)) < 7) {
-			return langDayOfWeek(lastDate);
-		} else {
-			return QLocale().toString(lastDate, QLocale::ShortFormat);
-		}
-	}();
-	PaintRowTopRight(p, dt, rectForName, context);
 }
 
 int PaintBadges(
@@ -268,10 +248,11 @@ void PaintFolderEntryText(
 enum class Flag {
 	SavedMessages    = 0x008,
 	RepliesMessages  = 0x010,
-	AllowUserOnline  = 0x020,
-	TopicJumpRipple  = 0x040,
-	HiddenAuthor     = 0x080,
-	MyNotes          = 0x100,
+	VerifyCodes      = 0x020,
+	AllowUserOnline  = 0x040,
+	TopicJumpRipple  = 0x080,
+	HiddenAuthor     = 0x100,
+	MyNotes          = 0x200,
 };
 inline constexpr bool is_flag_type(Flag) { return true; }
 
@@ -283,9 +264,9 @@ void PaintRow(
 		not_null<Entry*> entry,
 		VideoUserpic *videoUserpic,
 		PeerData *from,
-		PeerBadge &fromBadge,
+		PeerBadge &rowBadge,
 		Fn<void()> customEmojiRepaint,
-		const Text::String &fromName,
+		const Text::String &rowName,
 		const HiddenSenderInfo *hiddenSenderInfo,
 		HistoryItem *item,
 		const Data::Draft *draft,
@@ -444,7 +425,8 @@ void PaintRow(
 		|| (supportMode
 			&& entry->session().supportHelper().isOccupiedBySomeone(history))) {
 		if (!promoted) {
-			PaintRowDate(p, date, rectForName, context);
+			const auto dateString = Ui::FormatDialogsDate(date);
+			PaintRowTopRight(p, dateString, rectForName, context);
 		}
 
 		auto availableWidth = namewidth;
@@ -491,7 +473,7 @@ void PaintRow(
 					: tr::lng_dialogs_text_with_from(
 						tr::now,
 						lt_from_part,
-						draftWrapped,
+						std::move(draftWrapped),
 						lt_message,
 						DialogsPreviewText({
 							.text = draft->textWithTags.text,
@@ -499,13 +481,22 @@ void PaintRow(
 								draft->textWithTags.tags),
 						}),
 						Text::WithEntities);
+				if (draft && draft->reply) {
+					auto &data = thread->owner().customEmojiManager();
+					draftText = Ui::Text::Colorized(
+						Ui::Text::SingleCustomEmoji(
+							data.registerInternalEmoji(
+								st::dialogsMiniReplyIcon,
+								{},
+								true))).append(std::move(draftText));
+				}
 				const auto context = Core::MarkedTextContext{
 					.session = &thread->session(),
 					.customEmojiRepaint = customEmojiRepaint,
 				};
 				cache.setMarkedText(
 					st::dialogsTextStyle,
-					draftText,
+					std::move(draftText),
 					DialogTextOptions(),
 					context);
 			}
@@ -566,7 +557,8 @@ void PaintRow(
 		}
 	} else if (!item->isEmpty()) {
 		if ((thread || sublist) && !promoted) {
-			PaintRowDate(p, date, rectForName, context);
+			const auto dateString = Ui::FormatDialogsDate(date);
+			PaintRowTopRight(p, dateString, rectForName, context);
 		}
 
 		paintItemCallback(nameleft, namewidth);
@@ -627,12 +619,15 @@ void PaintRow(
 	if (flags
 		& (Flag::SavedMessages
 			| Flag::RepliesMessages
+			| Flag::VerifyCodes
 			| Flag::HiddenAuthor
 			| Flag::MyNotes)) {
 		auto text = (flags & Flag::SavedMessages)
 			? tr::lng_saved_messages(tr::now)
 			: (flags & Flag::RepliesMessages)
 			? tr::lng_replies_messages(tr::now)
+			: (flags & Flag::VerifyCodes)
+			? tr::lng_verification_codes(tr::now)
 			: (flags & Flag::MyNotes)
 			? tr::lng_my_notes(tr::now)
 			: tr::lng_hidden_author_messages(tr::now);
@@ -648,10 +643,10 @@ void PaintRow(
 		p.drawTextLeft(rectForName.left(), rectForName.top(), context.width, text);
 	} else if (from) {
 		if ((history || sublist) && !context.search) {
-			const auto badgeWidth = fromBadge.drawGetWidth(
+			const auto badgeWidth = rowBadge.drawGetWidth(
 				p,
 				rectForName,
-				fromName.maxWidth(),
+				rowName.maxWidth(),
 				context.width,
 				{
 					.peer = from,
@@ -685,14 +680,22 @@ void PaintRow(
 			: context.selected
 			? st::dialogsNameFgOver
 			: st::dialogsNameFg);
-		fromName.drawElided(p, rectForName.left(), rectForName.top(), rectForName.width());
+		rowName.draw(p, {
+			.position = rectForName.topLeft(),
+			.availableWidth = rectForName.width(),
+			.elisionLines = 1,
+		});
 	} else if (hiddenSenderInfo) {
 		p.setPen(context.active
 			? st::dialogsNameFgActive
 			: context.selected
 			? st::dialogsNameFgOver
 			: st::dialogsNameFg);
-		hiddenSenderInfo->nameText().drawElided(p, rectForName.left(), rectForName.top(), rectForName.width());
+		hiddenSenderInfo->nameText().draw(p, {
+			.position = rectForName.topLeft(),
+			.availableWidth = rectForName.width(),
+			.elisionLines = 1,
+		});
 	} else {
 		p.setPen(context.active
 			? st::dialogsNameFgActive
@@ -703,12 +706,11 @@ void PaintRow(
 			: (context.selected
 				? st::dialogsNameFgOver
 				: st::dialogsNameFg));
-		auto text = entry->chatListName(); // TODO feed name with emoji
-		auto textWidth = st::semiboldFont->width(text);
-		if (textWidth > rectForName.width()) {
-			text = st::semiboldFont->elided(text, rectForName.width());
-		}
-		p.drawTextLeft(rectForName.left(), rectForName.top(), context.width, text);
+		rowName.draw(p, {
+			.position = rectForName.topLeft(),
+			.availableWidth = rectForName.width(),
+			.elisionLines = 1,
+		});
 	}
 }
 
@@ -810,6 +812,9 @@ void RowPainter::Paint(
 			: Flag(0))
 		| ((from && from->isRepliesChat())
 			? Flag::RepliesMessages
+			: Flag(0))
+		| ((from && from->isVerifyCodes())
+			? Flag::VerifyCodes
 			: Flag(0))
 		| ((sublist && from->isSavedHiddenAuthor())
 			? Flag::HiddenAuthor
@@ -967,8 +972,12 @@ void RowPainter::Paint(
 	const auto showRepliesMessages = history
 		&& history->peer->isRepliesChat()
 		&& !row->searchInChat();
+	const auto showVerifyCodes = history
+		&& history->peer->isVerifyCodes()
+		&& !row->searchInChat();
 	const auto flags = (showSavedMessages ? Flag::SavedMessages : Flag(0))
-		| (showRepliesMessages ? Flag::RepliesMessages : Flag(0));
+		| (showRepliesMessages ? Flag::RepliesMessages : Flag(0))
+		| (showVerifyCodes ? Flag::VerifyCodes : Flag(0));
 	PaintRow(
 		p,
 		row,

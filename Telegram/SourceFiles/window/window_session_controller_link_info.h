@@ -7,6 +7,10 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #pragma once
 
+namespace InlineBots {
+struct WebViewContext;
+} // namespace InlineBots
+
 namespace Window {
 
 enum class ResolveType {
@@ -15,9 +19,11 @@ enum class ResolveType {
 	BotStart,
 	AddToGroup,
 	AddToChannel,
+	HashtagSearch,
 	ShareGame,
 	Mention,
 	Boost,
+	Profile,
 };
 
 struct CommentId {
@@ -34,6 +40,7 @@ struct PeerByLinkInfo {
 	QString chatLinkSlug;
 	MsgId messageId = ShowAtUnreadMsgId;
 	StoryId storyId = 0;
+	QString text;
 	RepliesByLinkInfo repliesInfo;
 	ResolveType resolveType = ResolveType::Default;
 	QString startToken;
@@ -44,11 +51,12 @@ struct PeerByLinkInfo {
 	bool botAppForceConfirmation = false;
 	QString attachBotUsername;
 	std::optional<QString> attachBotToggleCommand;
-	bool attachBotMenuOpen = false;
+	bool attachBotMainOpen = false;
+	bool attachBotMainCompact = false;
 	InlineBots::PeerTypes attachBotChooseTypes;
 	std::optional<QString> voicechatHash;
 	FullMsgId clickFromMessageId;
-	QString clickFromAttachBotWebviewUrl;
+	std::shared_ptr<InlineBots::WebViewContext> clickFromBotWebviewContext;
 };
 
 } // namespace Window

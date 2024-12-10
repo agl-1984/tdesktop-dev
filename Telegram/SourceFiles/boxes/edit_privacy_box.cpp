@@ -159,10 +159,7 @@ public:
 		-> rpl::producer<RowSelectionChange>;
 
 private:
-	[[nodiscard]] std::unique_ptr<PeerListRow> createRow() const;
-
 	const not_null<Main::Session*> _session;
-	bool _premiums = false;
 
 	rpl::event_stream<> _selectionChanged;
 	rpl::event_stream<RowSelectionChange> _rowSelectionChanges;
@@ -198,7 +195,7 @@ PaintRoundImageCallback PremiumsRow::generatePaintUserpicCallback(
 			const auto radius = size * Ui::ForumUserpicRadiusMultiplier();
 			p.drawRoundedRect(x, y, size, size, radius, radius);
 		}
-		st::settingsPrivacyPremium.paintInCenter(p, { x, y, size, size });
+		st::settingsPrivacyPremium.paintInCenter(p, QRect(x, y, size, size));
 	};
 }
 
@@ -209,8 +206,7 @@ bool PremiumsRow::useForumLikeUserpic() const {
 TypesController::TypesController(
 	not_null<Main::Session*> session,
 	bool premiums)
-: _session(session)
-, _premiums(premiums) {
+: _session(session) {
 }
 
 Main::Session &TypesController::session() const {
@@ -331,6 +327,9 @@ auto PrivacyExceptionsBoxController::preparePremiumsRowList()
 
 	_deselectOption = [=](PeerListRowId itemId) {
 		if (const auto row = _typesDelegate->peerListFindRow(itemId)) {
+			if (itemId == kPremiumsRowId) {
+				_selected.premiums = false;
+			}
 			_typesDelegate->peerListSetRowChecked(row, false);
 		}
 	};
@@ -357,11 +356,12 @@ void PrivacyExceptionsBoxController::rowClicked(not_null<PeerListRow*> row) {
 
 auto PrivacyExceptionsBoxController::createRow(not_null<History*> history)
 -> std::unique_ptr<Row> {
-	if (history->peer->isSelf() || history->peer->isRepliesChat()) {
+	const auto peer = history->peer;
+	if (peer->isSelf() || peer->isRepliesChat() || peer->isVerifyCodes()) {
 		return nullptr;
-	} else if (!history->peer->isUser()
-		&& !history->peer->isChat()
-		&& !history->peer->isMegagroup()) {
+	} else if (!peer->isUser()
+		&& !peer->isChat()
+		&& !peer->isMegagroup()) {
 		return nullptr;
 	}
 	auto result = std::make_unique<Row>(history);
@@ -764,9 +764,6 @@ void EditMessagesPrivacyBox(
 				lt_link,
 				link,
 				Ui::Text::WithEntities),
-			.st = &st::defaultMultilineToast,
-			.duration = Ui::Toast::kDefaultDuration * 2,
-			.multiline = true,
 			.filter = crl::guard(&controller->session(), [=](
 					const ClickHandlerPtr &,
 					Qt::MouseButton button) {

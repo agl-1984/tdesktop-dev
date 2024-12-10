@@ -902,15 +902,15 @@ void BusinessBotStatus::Bar::showState(State state) {
 	_userpic->setAttribute(Qt::WA_TransparentForMouseEvents);
 	_userpic->show();
 	_name->setText(state.bot->name());
-	_status->setText(!state.canReply
-		? tr::lng_chatbot_status_views(tr::now)
-		: state.paused
+	_status->setText(state.paused
 		? tr::lng_chatbot_status_paused(tr::now)
-		: tr::lng_chatbot_status_can_reply(tr::now));
+		: state.canReply
+		? tr::lng_chatbot_status_can_reply(tr::now)
+		: tr::lng_chatbot_status_views(tr::now));
 	_togglePaused->setText(state.paused
 		? tr::lng_chatbot_button_resume()
 		: tr::lng_chatbot_button_pause());
-	_togglePaused->setVisible(state.canReply);
+	_togglePaused->setVisible(state.canReply || state.paused);
 	_paused = state.paused;
 	resizeToWidth(width());
 }
@@ -983,19 +983,26 @@ int BusinessBotStatus::Bar::resizeGetHeight(int newWidth) {
 	const auto &st = st::defaultPeerList.item;
 	_settings->moveToRight(0, 0, newWidth);
 	if (_userpic) {
-		_userpic->moveToLeft(st.photoPosition.x(), st.photoPosition.y());
+		_userpic->moveToLeft(
+			st.photoPosition.x(),
+			st.photoPosition.y(),
+			newWidth);
 	}
 	auto available = newWidth - _settings->width() - st.namePosition.x();
 	if (!_togglePaused->isHidden()) {
 		_togglePaused->moveToRight(
 			_settings->width(),
-			(st.height - _togglePaused->height()) / 2);
+			(st.height - _togglePaused->height()) / 2,
+			newWidth);
 		available -= _togglePaused->width();
 	}
 	_name->resizeToWidth(available);
-	_name->moveToLeft(st.namePosition.x(), st.namePosition.y());
+	_name->moveToLeft(st.namePosition.x(), st.namePosition.y(), newWidth);
 	_status->resizeToWidth(available);
-	_status->moveToLeft(st.statusPosition.x(), st.statusPosition.y());
+	_status->moveToLeft(
+		st.statusPosition.x(),
+		st.statusPosition.y(),
+		newWidth);
 	return st.height;
 }
 

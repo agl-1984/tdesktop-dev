@@ -8,10 +8,13 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "iv/iv_instance.h"
 
 #include "apiwrap.h"
+#include "base/platform/base_platform_info.h"
+#include "base/qt_signal_producer.h"
 #include "boxes/share_box.h"
 #include "core/application.h"
 #include "core/file_utilities.h"
 #include "core/shortcuts.h"
+#include "core/click_handler_types.h"
 #include "data/data_changes.h"
 #include "data/data_channel.h"
 #include "data/data_cloud_file.h"
@@ -30,16 +33,16 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "lang/lang_keys.h"
 #include "lottie/lottie_common.h" // Lottie::ReadContent.
 #include "main/main_account.h"
-#include "main/main_domain.h"
 #include "main/main_session.h"
 #include "main/session/session_show.h"
 #include "media/streaming/media_streaming_loader.h"
 #include "media/view/media_view_open_common.h"
 #include "storage/file_download.h"
-#include "storage/storage_domain.h"
+#include "storage/storage_account.h"
 #include "ui/boxes/confirm_box.h"
 #include "ui/layers/layer_widget.h"
 #include "ui/text/text_utilities.h"
+#include "ui/toast/toast.h"
 #include "ui/basic_click_handlers.h"
 #include "webview/webview_data_stream_memory.h"
 #include "webview/webview_interface.h"
@@ -48,6 +51,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "window/window_session_controller_link_info.h"
 
 #include <QtGui/QGuiApplication>
+#include <QtGui/QWindow>
 
 namespace Iv {
 namespace {
@@ -56,6 +60,7 @@ constexpr auto kGeoPointScale = 1;
 constexpr auto kGeoPointZoomMin = 13;
 constexpr auto kMaxLoadParts = 5;
 constexpr auto kKeepLoadingParts = 8;
+constexpr auto kAllowPageReloadAfter = 3 * crl::time(1000);
 
 } // namespace
 
@@ -63,7 +68,7 @@ class Shown final : public base::has_weak_ptr {
 public:
 	Shown(
 		not_null<Delegate*> delegate,
-		std::shared_ptr<Main::SessionShow> show,
+		not_null<Main::Session*> session,
 		not_null<Data*> data,
 		QString hash);
 
@@ -167,14 +172,46 @@ private:
 
 };
 
+class TonSite final : public base::has_weak_ptr {
+public:
+	TonSite(not_null<Delegate*> delegate, QString uri);
+
+	[[nodiscard]] bool active() const;
+
+	void moveTo(QString uri);
+
+	void minimize();
+
+	[[nodiscard]] rpl::producer<Controller::Event> events() const {
+		return _events.events();
+	}
+
+	[[nodiscard]] rpl::lifetime &lifetime() {
+		return _lifetime;
+	}
+
+private:
+	void createController();
+
+	void showWindowed();
+
+	const not_null<Delegate*> _delegate;
+	QString _uri;
+	std::unique_ptr<Controller> _controller;
+
+	rpl::event_stream<Controller::Event> _events;
+
+	rpl::lifetime _lifetime;
+
+};
+
 Shown::Shown(
 	not_null<Delegate*> delegate,
-	std::shared_ptr<Main::SessionShow> show,
+	not_null<Main::Session*> session,
 	not_null<Data*> data,
 	QString hash)
 : _delegate(delegate)
-, _session(&show->session())
-, _show(show) {
+, _session(session) {
 	prepare(data, hash);
 }
 
@@ -297,102 +334,41 @@ ShareBoxResult Shown::shareBox(ShareBoxDescriptor &&descriptor) {
 		state->destroyRequests.fire({});
 	}, wrap->lifetime());
 
-	const auto box = std::make_shared<QPointer<Ui::BoxContent>>();
-	const auto sending = std::make_shared<bool>();
-	auto copyCallback = [=] {
-		QGuiApplication::clipboard()->setText(url);
-		show->showToast(tr::lng_background_link_copied(tr::now));
-	};
-	auto submitCallback = [=](
-			std::vector<not_null<::Data::Thread*>> &&result,
-			TextWithTags &&comment,
-			Api::SendOptions options,
-			::Data::ForwardOptions) {
-		if (*sending || result.empty()) {
-			return;
-		}
-
-		const auto error = [&] {
-			for (const auto thread : result) {
-				const auto error = GetErrorTextForSending(
-					thread,
-					{ .text = &comment });
-				if (!error.isEmpty()) {
-					return std::make_pair(error, thread);
-				}
-			}
-			return std::make_pair(QString(), result.front());
-		}();
-		if (!error.first.isEmpty()) {
-			auto text = TextWithEntities();
-			if (result.size() > 1) {
-				text.append(
-					Ui::Text::Bold(error.second->chatListName())
-				).append("\n\n");
-			}
-			text.append(error.first);
-			if (const auto weak = *box) {
-				weak->getDelegate()->show(Ui::MakeConfirmBox({
-					.text = text,
-					.inform = true,
-				}));
-			}
-			return;
-		}
-
-		*sending = true;
-		if (!comment.text.isEmpty()) {
-			comment.text = url + "\n" + comment.text;
-			const auto add = url.size() + 1;
-			for (auto &tag : comment.tags) {
-				tag.offset += add;
-			}
-		} else {
-			comment.text = url;
-		}
-		auto &api = _session->api();
-		for (const auto thread : result) {
-			auto message = Api::MessageToSend(
-				Api::SendAction(thread, options));
-			message.textWithTags = comment;
-			message.action.clearDraft = false;
-			api.sendMessage(std::move(message));
-		}
-		if (*box) {
-			(*box)->closeBox();
-		}
-		show->showToast(tr::lng_share_done(tr::now));
-	};
-	auto filterCallback = [](not_null<::Data::Thread*> thread) {
-		if (const auto user = thread->peer()->asUser()) {
-			if (user->canSendIgnoreRequirePremium()) {
-				return true;
-			}
-		}
-		return ::Data::CanSend(thread, ChatRestriction::SendOther);
-	};
+	const auto waiting = layer->lifetime().make_state<rpl::lifetime>();
 	const auto focus = crl::guard(layer, [=] {
-		if (!layer->window()->isActiveWindow()) {
-			layer->window()->activateWindow();
+		const auto set = [=] {
 			layer->window()->setFocus();
+			layer->setInnerFocus();
+		};
+
+		const auto handle = layer->window()->windowHandle();
+		if (!handle) {
+			waiting->destroy();
+			return;
+		} else if (QGuiApplication::focusWindow() == handle) {
+			waiting->destroy();
+			set();
+		} else {
+			*waiting = base::qt_signal_producer(
+				qApp,
+				&QGuiApplication::focusWindowChanged
+			) | rpl::filter([=](QWindow *focused) {
+				const auto handle = layer->window()->windowHandle();
+				return handle && (focused == handle);
+			}) | rpl::start_with_next([=] {
+				waiting->destroy();
+				set();
+			});
+			layer->window()->activateWindow();
 		}
-		layer->setInnerFocus();
 	});
 	auto result = ShareBoxResult{
 		.focus = focus,
 		.hide = [=] { show->hideLayer(); },
 		.destroyRequests = state->destroyRequests.events(),
 	};
-	*box = show->show(
-		Box<ShareBox>(ShareBox::Descriptor{
-			.session = _session,
-			.copyCallback = std::move(copyCallback),
-			.submitCallback = std::move(submitCallback),
-			.filterCallback = std::move(filterCallback),
-			.premiumRequiredError = SharePremiumRequiredError(),
-		}),
-		Ui::LayerOption::KeepOther,
-		anim::type::normal);
+
+	FastShareLink(Main::MakeSessionShow(show, _session), url);
 	return result;
 }
 
@@ -430,9 +406,8 @@ void Shown::showWindowed(Prepared result) {
 		createController();
 	}
 
-	const auto domain = &_session->domain();
 	_controller->show(
-		domain->local().webviewDataPath(),
+		_session->local().resolveStorageIdOther(),
 		std::move(result),
 		base::duplicate(_inChannelValues));
 }
@@ -801,6 +776,48 @@ void Shown::minimize() {
 	}
 }
 
+TonSite::TonSite(not_null<Delegate*> delegate, QString uri)
+: _delegate(delegate)
+, _uri(uri) {
+	showWindowed();
+}
+
+void TonSite::createController() {
+	Expects(!_controller);
+
+	const auto showShareBox = [=](ShareBoxDescriptor &&descriptor) {
+		return ShareBoxResult();
+	};
+	_controller = std::make_unique<Controller>(
+		_delegate,
+		std::move(showShareBox));
+
+	_controller->events(
+	) | rpl::start_to_stream(_events, _controller->lifetime());
+}
+
+void TonSite::showWindowed() {
+	if (!_controller) {
+		createController();
+	}
+
+	_controller->showTonSite(Storage::TonSiteStorageId(), _uri);
+}
+
+bool TonSite::active() const {
+	return _controller && _controller->active();
+}
+
+void TonSite::moveTo(QString uri) {
+	_controller->showTonSite({}, uri);
+}
+
+void TonSite::minimize() {
+	if (_controller) {
+		_controller->minimize();
+	}
+}
+
 Instance::Instance(not_null<Delegate*> delegate) : _delegate(delegate) {
 }
 
@@ -818,20 +835,33 @@ void Instance::show(
 		std::shared_ptr<Main::SessionShow> show,
 		not_null<Data*> data,
 		QString hash) {
-	const auto session = &show->session();
+	this->show(&show->session(), data, hash);
+}
+
+void Instance::show(
+		not_null<Main::Session*> session,
+		not_null<Data*> data,
+		QString hash) {
+	if (Platform::IsMac()) {
+		// Otherwise IV is not visible under the media viewer.
+		Core::App().hideMediaView();
+	}
+
 	const auto guard = gsl::finally([&] {
-		if (data->partial()) {
-			requestFull(session, data->id());
-		}
+		requestFull(session, data->id());
 	});
 	if (_shown && _shownSession == session) {
 		_shown->moveTo(data, hash);
 		return;
 	}
-	_shown = std::make_unique<Shown>(_delegate, show, data, hash);
+	_shown = std::make_unique<Shown>(_delegate, session, data, hash);
 	_shownSession = session;
 	_shown->events() | rpl::start_with_next([=](Controller::Event event) {
 		using Type = Controller::Event::Type;
+		const auto lower = event.url.toLower();
+		const auto urlChecked = lower.startsWith("http://")
+			|| lower.startsWith("https://");
+		const auto tonsite = lower.startsWith("tonsite://");
 		switch (event.type) {
 		case Type::Close:
 			_shown = nullptr;
@@ -846,8 +876,12 @@ void Instance::show(
 			processJoinChannel(event.context);
 			break;
 		case Type::OpenLinkExternal:
-			File::OpenUrl(event.url);
-			closeAll();
+			if (urlChecked) {
+				File::OpenUrl(event.url);
+				closeAll();
+			} else if (tonsite) {
+				showTonSite(event.url);
+			}
 			break;
 		case Type::OpenMedia:
 			if (const auto window = Core::App().activeWindow()) {
@@ -884,25 +918,43 @@ void Instance::show(
 			}
 			break;
 		case Type::OpenPage:
-		case Type::OpenLink:
-			_shownSession->api().request(MTPmessages_GetWebPage(
-				MTP_string(event.url),
-				MTP_int(0)
+		case Type::OpenLink: {
+			if (tonsite) {
+				showTonSite(event.url);
+				break;
+			} else if (!urlChecked) {
+				break;
+			}
+			const auto session = _shownSession;
+			const auto url = event.url;
+			auto &requested = _fullRequested[session][url];
+			requested.lastRequestedAt = crl::now();
+			session->api().request(MTPmessages_GetWebPage(
+				MTP_string(url),
+				MTP_int(requested.hash)
 			)).done([=](const MTPmessages_WebPage &result) {
-				_shownSession->data().processUsers(result.data().vusers());
-				_shownSession->data().processChats(result.data().vchats());
-				const auto page = _shownSession->data().processWebpage(
-					result.data().vwebpage());
+				const auto page = processReceivedPage(session, url, result);
 				if (page && page->iv) {
 					const auto parts = event.url.split('#');
 					const auto hash = (parts.size() > 1) ? parts[1] : u""_q;
-					this->show(show, page->iv.get(), hash);
+					this->show(_shownSession, page->iv.get(), hash);
 				} else {
 					UrlClickHandler::Open(event.url);
 				}
 			}).fail([=] {
 				UrlClickHandler::Open(event.url);
 			}).send();
+		} break;
+		case Type::Report:
+			if (const auto controller = _shownSession->tryResolveWindow()) {
+				controller->window().activate();
+				controller->showPeerByLink(Window::PeerByLinkInfo{
+					.usernameOrId = "previews",
+					.resolveType = Window::ResolveType::BotStart,
+					.startToken = ("webpage"
+						+ QString::number(event.context.toULongLong())),
+				});
+			}
 			break;
 		}
 	}, _shown->lifetime());
@@ -921,41 +973,201 @@ void Instance::show(
 		}
 	}, _shown->lifetime());
 
-	if (!_tracking.contains(session)) {
-		_tracking.emplace(session);
-		session->lifetime().add([=] {
-			_tracking.remove(session);
-			_joining.remove(session);
-			_fullRequested.remove(session);
-			if (_shownSession == session) {
-				_shownSession = nullptr;
-			}
-			if (_shown && _shown->showingFrom(session)) {
-				_shown = nullptr;
-			}
-		});
+	trackSession(session);
+}
+
+void Instance::trackSession(not_null<Main::Session*> session) {
+	if (!_tracking.emplace(session).second) {
+		return;
 	}
+	session->lifetime().add([=] {
+		_tracking.remove(session);
+		_joining.remove(session);
+		_fullRequested.remove(session);
+		_ivCache.remove(session);
+		if (_ivRequestSession == session) {
+			session->api().request(_ivRequestId).cancel();
+			_ivRequestSession = nullptr;
+			_ivRequestUri = QString();
+			_ivRequestId = 0;
+		}
+		if (_shownSession == session) {
+			_shownSession = nullptr;
+		}
+		if (_shown && _shown->showingFrom(session)) {
+			_shown = nullptr;
+		}
+	});
+}
+
+void Instance::openWithIvPreferred(
+		not_null<Window::SessionController*> controller,
+		QString uri,
+		QVariant context) {
+	auto my = context.value<ClickHandlerContext>();
+	my.sessionWindow = controller;
+	openWithIvPreferred(
+		&controller->session(),
+		uri,
+		QVariant::fromValue(my));
+}
+
+void Instance::openWithIvPreferred(
+		not_null<Main::Session*> session,
+		QString uri,
+		QVariant context) {
+	const auto openExternal = [=] {
+		auto my = context.value<ClickHandlerContext>();
+		my.ignoreIv = true;
+		UrlClickHandler::Open(uri, QVariant::fromValue(my));
+	};
+	const auto parts = uri.split('#');
+	if (parts.isEmpty() || parts[0].isEmpty()) {
+		return;
+	} else if (!ShowButton()) {
+		return openExternal();
+	}
+	trackSession(session);
+	const auto hash = (parts.size() > 1) ? parts[1] : u""_q;
+	const auto url = parts[0];
+	auto &cache = _ivCache[session];
+	if (const auto i = cache.find(url); i != end(cache)) {
+		const auto page = i->second;
+		if (page && page->iv) {
+			auto my = context.value<ClickHandlerContext>();
+			if (const auto window = my.sessionWindow.get()) {
+				show(window, page->iv.get(), hash);
+			} else {
+				show(session, page->iv.get(), hash);
+			}
+		} else {
+			openExternal();
+		}
+		return;
+	} else if (_ivRequestSession == session.get() && _ivRequestUri == uri) {
+		return;
+	} else if (_ivRequestId) {
+		_ivRequestSession->api().request(_ivRequestId).cancel();
+	}
+	const auto finish = [=](WebPageData *page) {
+		Expects(_ivRequestSession == session);
+
+		_ivRequestId = 0;
+		_ivRequestUri = QString();
+		_ivRequestSession = nullptr;
+		_ivCache[session][url] = page;
+		openWithIvPreferred(session, uri, context);
+	};
+	_ivRequestSession = session;
+	_ivRequestUri = uri;
+	auto &requested = _fullRequested[session][url];
+	requested.lastRequestedAt = crl::now();
+	_ivRequestId = session->api().request(MTPmessages_GetWebPage(
+		MTP_string(url),
+		MTP_int(requested.hash)
+	)).done([=](const MTPmessages_WebPage &result) {
+		finish(processReceivedPage(session, url, result));
+	}).fail([=] {
+		finish(nullptr);
+	}).send();
+}
+
+void Instance::showTonSite(
+		const QString &uri,
+		QVariant context) {
+	if (!Controller::IsGoodTonSiteUrl(uri)) {
+		Ui::Toast::Show(tr::lng_iv_not_supported(tr::now));
+		return;
+	} else if (Platform::IsMac()) {
+		// Otherwise IV is not visible under the media viewer.
+		Core::App().hideMediaView();
+	}
+	if (_tonSite) {
+		_tonSite->moveTo(uri);
+		return;
+	}
+	_tonSite = std::make_unique<TonSite>(_delegate, uri);
+	_tonSite->events() | rpl::start_with_next([=](Controller::Event event) {
+		using Type = Controller::Event::Type;
+		const auto lower = event.url.toLower();
+		const auto urlChecked = lower.startsWith("http://")
+			|| lower.startsWith("https://");
+		const auto tonsite = lower.startsWith("tonsite://");
+		switch (event.type) {
+		case Type::Close:
+			_tonSite = nullptr;
+			break;
+		case Type::Quit:
+			Shortcuts::Launch(Shortcuts::Command::Quit);
+			break;
+		case Type::OpenLinkExternal:
+			if (urlChecked) {
+				File::OpenUrl(event.url);
+				closeAll();
+			} else if (tonsite) {
+				showTonSite(event.url);
+			}
+			break;
+		case Type::OpenPage:
+		case Type::OpenLink:
+			if (urlChecked) {
+				UrlClickHandler::Open(event.url);
+			} else if (tonsite) {
+				showTonSite(event.url);
+			}
+			break;
+		}
+	}, _tonSite->lifetime());
 }
 
 void Instance::requestFull(
 		not_null<Main::Session*> session,
 		const QString &id) {
-	if (!_tracking.contains(session)
-		|| !_fullRequested[session].emplace(id).second) {
+	if (!_tracking.contains(session)) {
 		return;
 	}
+	auto &requested = _fullRequested[session][id];
+	const auto last = requested.lastRequestedAt;
+	const auto now = crl::now();
+	if (last && (now - last) < kAllowPageReloadAfter) {
+		return;
+	}
+	requested.lastRequestedAt = now;
 	session->api().request(MTPmessages_GetWebPage(
 		MTP_string(id),
-		MTP_int(0)
+		MTP_int(requested.hash)
 	)).done([=](const MTPmessages_WebPage &result) {
-		session->data().processUsers(result.data().vusers());
-		session->data().processChats(result.data().vchats());
-		const auto page = session->data().processWebpage(
-			result.data().vwebpage());
+		const auto page = processReceivedPage(session, id, result);
 		if (page && page->iv && _shown && _shownSession == session) {
 			_shown->update(page->iv.get());
 		}
 	}).send();
+}
+
+WebPageData *Instance::processReceivedPage(
+		not_null<Main::Session*> session,
+		const QString &url,
+		const MTPmessages_WebPage &result) {
+	const auto &data = result.data();
+	const auto owner = &session->data();
+	owner->processUsers(data.vusers());
+	owner->processChats(data.vchats());
+	auto &requested = _fullRequested[session][url];
+	const auto &mtp = data.vwebpage();
+	mtp.match([&](const MTPDwebPageNotModified &data) {
+		const auto page = requested.page;
+		if (const auto views = data.vcached_page_views()) {
+			if (page && page->iv) {
+				page->iv->updateCachedViews(views->v);
+			}
+		}
+	}, [&](const MTPDwebPage &data) {
+		requested.hash = data.vhash().v;
+		requested.page = owner->processWebpage(data).get();
+	}, [&](const auto &) {
+		requested.page = owner->processWebpage(mtp).get();
+	});
+	return requested.page;
 }
 
 void Instance::processOpenChannel(const QString &context) {
@@ -964,20 +1176,16 @@ void Instance::processOpenChannel(const QString &context) {
 	} else if (const auto channelId = ChannelId(context.toLongLong())) {
 		const auto channel = _shownSession->data().channel(channelId);
 		if (channel->isLoaded()) {
-			if (const auto window = Core::App().windowFor(channel)) {
-				if (const auto controller = window->sessionController()) {
-					controller->showPeerHistory(channel);
-					_shown = nullptr;
-				}
+			if (const auto controller = _shownSession->tryResolveWindow(channel)) {
+				controller->showPeerHistory(channel);
+				_shown = nullptr;
 			}
 		} else if (!channel->username().isEmpty()) {
-			if (const auto window = Core::App().windowFor(channel)) {
-				if (const auto controller = window->sessionController()) {
-					controller->showPeerByLink({
-						.usernameOrId = channel->username(),
-					});
-					_shown = nullptr;
-				}
+			if (const auto controller = _shownSession->tryResolveWindow(channel)) {
+				controller->showPeerByLink({
+					.usernameOrId = channel->username(),
+				});
+				_shown = nullptr;
 			}
 		}
 	}
@@ -992,13 +1200,11 @@ void Instance::processJoinChannel(const QString &context) {
 		if (channel->isLoaded()) {
 			_shownSession->api().joinChannel(channel);
 		} else if (!channel->username().isEmpty()) {
-			if (const auto window = Core::App().windowFor(channel)) {
-				if (const auto controller = window->sessionController()) {
-					controller->showPeerByLink({
-						.usernameOrId = channel->username(),
-						.joinChannel = true,
-					});
-				}
+			if (const auto controller = _shownSession->tryResolveWindow(channel)) {
+				controller->showPeerByLink({
+					.usernameOrId = channel->username(),
+					.joinChannel = true,
+				});
 			}
 		}
 	}
@@ -1009,23 +1215,43 @@ bool Instance::hasActiveWindow(not_null<Main::Session*> session) const {
 }
 
 bool Instance::closeActive() {
-	if (!_shown || !_shown->active()) {
-		return false;
+	if (_shown && _shown->active()) {
+		_shown = nullptr;
+		return true;
+	} else if (_tonSite && _tonSite->active()) {
+		_tonSite = nullptr;
+		return true;
 	}
-	_shown = nullptr;
-	return true;
+	return false;
 }
 
 bool Instance::minimizeActive() {
-	if (!_shown || !_shown->active()) {
-		return false;
+	if (_shown && _shown->active()) {
+		_shown->minimize();
+		return true;
+	} else if (_tonSite && _tonSite->active()) {
+		_tonSite->minimize();
+		return true;
 	}
-	_shown->minimize();
-	return true;
+	return false;
 }
 
 void Instance::closeAll() {
 	_shown = nullptr;
+	_tonSite = nullptr;
+}
+
+bool PreferForUri(const QString &uri) {
+	const auto url = QUrl(uri);
+	const auto host = url.host().toLower();
+	const auto path = url.path().toLower();
+	return (host == u"telegra.ph"_q)
+		|| (host == u"te.legra.ph"_q)
+		|| (host == u"graph.org"_q)
+		|| (host == u"telegram.org"_q
+			&& (path.startsWith(u"/faq"_q)
+				|| path.startsWith(u"/privacy"_q)
+				|| path.startsWith(u"/blog"_q)));
 }
 
 } // namespace Iv

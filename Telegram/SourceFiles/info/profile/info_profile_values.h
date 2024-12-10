@@ -57,21 +57,28 @@ rpl::producer<not_null<PeerData*>> MigratedOrMeValue(
 [[nodiscard]] rpl::producer<TextWithEntities> PhoneOrHiddenValue(
 	not_null<UserData*> user);
 [[nodiscard]] rpl::producer<TextWithEntities> UsernameValue(
-	not_null<UserData*> user,
+	not_null<PeerData*> peer,
 	bool primary = false);
 [[nodiscard]] rpl::producer<std::vector<TextWithEntities>> UsernamesValue(
 	not_null<PeerData*> peer);
 [[nodiscard]] QString UsernameUrl(
 	not_null<PeerData*> peer,
-	const QString &username);
+	const QString &username,
+	bool link = false);
 [[nodiscard]] TextWithEntities AboutWithEntities(
 	not_null<PeerData*> peer,
 	const QString &value);
 [[nodiscard]] rpl::producer<TextWithEntities> AboutValue(
 	not_null<PeerData*> peer);
-[[nodiscard]] rpl::producer<QString> LinkValue(
+
+struct LinkWithUrl {
+	QString text;
+	QString url;
+};
+[[nodiscard]] rpl::producer<LinkWithUrl> LinkValue(
 	not_null<PeerData*> peer,
 	bool primary = false);
+
 [[nodiscard]] rpl::producer<const ChannelLocation*> LocationValue(
 	not_null<ChannelData*> channel);
 [[nodiscard]] rpl::producer<bool> NotificationsEnabledValue(
@@ -114,6 +121,8 @@ rpl::producer<not_null<PeerData*>> MigratedOrMeValue(
 	not_null<ChannelData*> channel);
 [[nodiscard]] rpl::producer<int> SavedSublistCountValue(
 	not_null<PeerData*> peer);
+[[nodiscard]] rpl::producer<int> PeerGiftsCountValue(
+	not_null<UserData*> user);
 [[nodiscard]] rpl::producer<bool> CanAddMemberValue(
 	not_null<PeerData*> peer);
 [[nodiscard]] rpl::producer<int> FullReactionsCountValue(

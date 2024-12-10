@@ -22,6 +22,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "settings/settings_premium.h" // Settings::ShowPremium.
 #include "settings/settings_privacy_controllers.h"
 #include "settings/settings_websites.h"
+#include "base/system_unlock.h"
 #include "base/timer_rpl.h"
 #include "boxes/passcode_box.h"
 #include "boxes/sessions_box.h"
@@ -30,12 +31,14 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "core/application.h"
 #include "core/core_settings.h"
 #include "ui/chat/chat_style.h"
+#include "ui/effects/premium_graphics.h"
 #include "ui/effects/premium_top_bar.h"
 #include "ui/text/format_values.h"
 #include "ui/text/text_utilities.h"
 #include "ui/toast/toast.h"
 #include "ui/wrap/slide_wrap.h"
 #include "ui/wrap/fade_wrap.h"
+#include "ui/widgets/fields/input_field.h"
 #include "ui/widgets/shadow.h"
 #include "ui/widgets/checkbox.h"
 #include "ui/vertical_list.h"
@@ -43,6 +46,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "calls/calls_instance.h"
 #include "core/update_checker.h"
 #include "lang/lang_keys.h"
+#include "data/components/top_peers.h"
 #include "data/data_session.h"
 #include "data/data_chat.h"
 #include "data/data_channel.h"
@@ -78,7 +82,8 @@ using Privacy = Api::UserPrivacy;
 	image.fill(Qt::transparent);
 	{
 		auto p = QPainter(&image);
-		auto star = QSvgRenderer(Ui::Premium::ColorizedSvg());
+		auto star = QSvgRenderer(
+			Ui::Premium::ColorizedSvg(Ui::Premium::ButtonGradientStops()));
 		star.render(&p, Rect(size));
 	}
 	return image;
@@ -113,6 +118,56 @@ void AddPremiumStar(
 			button->fullTextWidth() + badgeLeft,
 			(s.height() - badge->height()) / 2);
 	}, badge->lifetime());
+}
+
+void OpenFileConfirmationsBox(not_null<Ui::GenericBox*> box) {
+	box->setTitle(tr::lng_settings_file_confirmations());
+
+	const auto settings = &Core::App().settings();
+	const auto &list = settings->noWarningExtensions();
+	const auto text = QStringList(begin(list), end(list)).join(' ');
+	const auto layout = box->verticalLayout();
+	const auto extensions = box->addRow(
+		object_ptr<Ui::InputField>(
+			box,
+			st::defaultInputField,
+			Ui::InputField::Mode::MultiLine,
+			tr::lng_settings_edit_extensions(),
+			TextWithTags{ text }),
+		st::boxRowPadding + QMargins(0, 0, 0, st::settingsPrivacySkip));
+	Ui::AddDividerText(layout, tr::lng_settings_edit_extensions_about());
+	Ui::AddSkip(layout);
+	const auto ip = layout->add(object_ptr<Ui::SettingsButton>(
+		box,
+		tr::lng_settings_edit_ip_confirm(),
+		st::settingsButtonNoIcon
+	))->toggleOn(rpl::single(settings->ipRevealWarning()));
+	Ui::AddSkip(layout);
+	Ui::AddDividerText(layout, tr::lng_settings_edit_ip_confirm_about());
+
+	box->setFocusCallback([=] {
+		extensions->setFocusFast();
+	});
+
+	box->addButton(tr::lng_settings_save(), [=] {
+		const auto extensionsList = extensions->getLastText()
+			.mid(0, 10240)
+			.split(' ', Qt::SkipEmptyParts)
+			.mid(0, 1024);
+		auto extensions = base::flat_set<QString>(
+			extensionsList.begin(),
+			extensionsList.end());
+		const auto ipRevealWarning = ip->toggled();
+		if (extensions != settings->noWarningExtensions()
+			|| ipRevealWarning != settings->ipRevealWarning()) {
+			settings->setNoWarningExtensions(std::move(extensions));
+			settings->setIpRevealWarning(ipRevealWarning);
+			Core::App().saveSettingsDelayed();
+		}
+		box->closeBox();
+
+	});
+	box->addButton(tr::lng_cancel(), [=] { box->closeBox(); });
 }
 
 QString PrivacyBase(Privacy::Key key, const Privacy::Rule &rule) {
@@ -253,9 +308,7 @@ void AddPremiumPrivacyButton(
 				lt_link,
 				link,
 				Ui::Text::WithEntities),
-			.st = &st::defaultMultilineToast,
 			.duration = Ui::Toast::kDefaultDuration * 2,
-			.multiline = true,
 			.filter = crl::guard(&controller->session(), [=](
 					const ClickHandlerPtr &,
 					Qt::MouseButton button) {
@@ -508,45 +561,33 @@ void SetupCloudPassword(
 	session->api().cloudPassword().reload();
 }
 
-void SetupSensitiveContent(
+void SetupTopPeers(
 		not_null<Window::SessionController*> controller,
-		not_null<Ui::VerticalLayout*> container,
-		rpl::producer<> updateTrigger) {
-	using namespace rpl::mappers;
-
-	const auto wrap = container->add(
-		object_ptr<Ui::SlideWrap<Ui::VerticalLayout>>(
-			container,
-			object_ptr<Ui::VerticalLayout>(container)));
-	const auto inner = wrap->entity();
-
-	Ui::AddSkip(inner);
-	Ui::AddSubsectionTitle(inner, tr::lng_settings_sensitive_title());
+		not_null<Ui::VerticalLayout*> container) {
+	Ui::AddSkip(container);
+	Ui::AddSubsectionTitle(container, tr::lng_settings_top_peers_title());
 
 	const auto session = &controller->session();
 
-	std::move(
-		updateTrigger
-	) | rpl::start_with_next([=] {
-		session->api().sensitiveContent().reload();
-	}, container->lifetime());
-	inner->add(object_ptr<Button>(
-		inner,
-		tr::lng_settings_sensitive_disable_filtering(),
+	container->add(object_ptr<Button>(
+		container,
+		tr::lng_settings_top_peers_suggest(),
 		st::settingsButtonNoIcon
-	))->toggleOn(
-		session->api().sensitiveContent().enabled()
-	)->toggledChanges(
-	) | rpl::filter([=](bool toggled) {
-		return toggled != session->api().sensitiveContent().enabledCurrent();
-	}) | rpl::start_with_next([=](bool toggled) {
-		session->api().sensitiveContent().update(toggled);
+	))->toggleOn(rpl::single(
+		rpl::empty
+	) | rpl::then(
+		session->topPeers().updates()
+	) | rpl::map([=] {
+		return !session->topPeers().disabled();
+	}))->toggledChanges(
+	) | rpl::filter([=](bool enabled) {
+		return enabled == session->topPeers().disabled();
+	}) | rpl::start_with_next([=](bool enabled) {
+		session->topPeers().toggleDisabled(!enabled);
 	}, container->lifetime());
 
-	Ui::AddSkip(inner);
-	Ui::AddDividerText(inner, tr::lng_settings_sensitive_about());
-
-	wrap->toggleOn(session->api().sensitiveContent().canChange());
+	Ui::AddSkip(container);
+	Ui::AddDividerText(container, tr::lng_settings_top_peers_about());
 }
 
 void SetupSelfDestruction(
@@ -658,6 +699,30 @@ void SetupBotsAndWebsites(
 	});
 
 	Ui::AddSkip(container);
+	Ui::AddDivider(container);
+}
+
+void SetupConfirmationExtensions(
+		not_null<Window::SessionController*> controller,
+		not_null<Ui::VerticalLayout*> container) {
+	if (Core::App().settings().noWarningExtensions().empty()
+		&& Core::App().settings().ipRevealWarning()) {
+		return;
+	}
+
+	Ui::AddSkip(container);
+	Ui::AddSubsectionTitle(container, tr::lng_settings_file_confirmations());
+
+	container->add(object_ptr<Button>(
+		container,
+		tr::lng_settings_edit_extensions(),
+		st::settingsButtonNoIcon
+	))->addClickHandler([=] {
+		controller->show(Box(OpenFileConfirmationsBox));
+	});
+
+	Ui::AddSkip(container);
+	Ui::AddDividerText(container, tr::lng_settings_edit_extensions_about());
 }
 
 void SetupBlockedList(
@@ -817,6 +882,47 @@ void SetupSecurity(
 }
 
 } // namespace
+
+void SetupSensitiveContent(
+		not_null<Window::SessionController*> controller,
+		not_null<Ui::VerticalLayout*> container,
+		rpl::producer<> updateTrigger) {
+	using namespace rpl::mappers;
+
+	const auto wrap = container->add(
+		object_ptr<Ui::SlideWrap<Ui::VerticalLayout>>(
+			container,
+			object_ptr<Ui::VerticalLayout>(container)));
+	const auto inner = wrap->entity();
+
+	Ui::AddSkip(inner);
+	Ui::AddSubsectionTitle(inner, tr::lng_settings_sensitive_title());
+
+	const auto session = &controller->session();
+
+	std::move(
+		updateTrigger
+	) | rpl::start_with_next([=] {
+		session->api().sensitiveContent().reload();
+	}, container->lifetime());
+	inner->add(object_ptr<Button>(
+		inner,
+		tr::lng_settings_sensitive_disable_filtering(),
+		st::settingsButtonNoIcon
+	))->toggleOn(
+		session->api().sensitiveContent().enabled()
+	)->toggledChanges(
+	) | rpl::filter([=](bool toggled) {
+		return toggled != session->api().sensitiveContent().enabledCurrent();
+	}) | rpl::start_with_next([=](bool toggled) {
+		session->api().sensitiveContent().update(toggled);
+	}, container->lifetime());
+
+	Ui::AddSkip(inner);
+	Ui::AddDividerText(inner, tr::lng_settings_sensitive_about());
+
+	wrap->toggleOn(session->api().sensitiveContent().canChange());
+}
 
 int ExceptionUsersCount(const std::vector<not_null<PeerData*>> &exceptions) {
 	const auto add = [](int already, not_null<PeerData*> peer) {
@@ -985,6 +1091,8 @@ PrivacySecurity::PrivacySecurity(
 	not_null<Window::SessionController*> controller)
 : Section(parent) {
 	setupContent(controller);
+
+	[[maybe_unused]] auto preload = base::SystemUnlockStatus();
 }
 
 rpl::producer<QString> PrivacySecurity::title() {
@@ -1003,14 +1111,10 @@ void PrivacySecurity::setupContent(
 
 	SetupSecurity(controller, content, trigger(), showOtherMethod());
 	SetupPrivacy(controller, content, trigger());
-#if !defined OS_MAC_STORE && !defined OS_WIN_STORE
-	SetupSensitiveContent(controller, content, trigger());
-#else // !OS_MAC_STORE && !OS_WIN_STORE
-	AddDivider(content);
-#endif // !OS_MAC_STORE && !OS_WIN_STORE
+	SetupTopPeers(controller, content);
 	SetupArchiveAndMute(controller, content);
+	SetupConfirmationExtensions(controller, content);
 	SetupBotsAndWebsites(controller, content);
-	AddDivider(content);
 	SetupSelfDestruction(controller, content, trigger());
 
 	Ui::ResizeFitChild(this, content);

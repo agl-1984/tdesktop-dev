@@ -252,7 +252,7 @@ QString ToFilePart(FileKey val) {
 	result.reserve(0x10);
 	for (int32 i = 0; i < 0x10; ++i) {
 		uchar v = (val & 0x0F);
-		result.push_back((v < 0x0A) ? ('0' + v) : ('A' + (v - 0x0A)));
+		result.push_back((v < 0x0A) ? QChar('0' + v) : QChar('A' + (v - 0x0A)));
 		val >>= 4;
 	}
 	return result;
@@ -552,24 +552,11 @@ bool ReadFile(
 				// Locale is not loaded yet
 				// Need to handle this manually here
 				Lang::Instance& lang = Lang::GetInstance();
+				lang.loadPTGPack();
 				QString title = lang.getValue(tr::lng_version_mistmatch_confirm.base);
 				QString descr = lang.getValue(tr::lng_version_mistmatch_desc.base);
 				QString yes = lang.getValue(tr::lng_continue.base);
 				QString no = lang.getValue(tr::lng_cancel.base);
-				if (lang.systemLangCode().startsWith("be"))
-				{
-					title = Translate(tr::lng_version_mistmatch_confirm.base, title, "Belarusian");
-					descr = Translate(tr::lng_version_mistmatch_desc.base, descr, "Belarusian");
-					yes   = Translate(tr::lng_continue.base, yes, "Belarusian");
-					no    = Translate(tr::lng_cancel.base, no, "Belarusian");
-				}
-				else if (lang.systemLangCode().startsWith("ru"))
-				{
-					title = Translate(tr::lng_version_mistmatch_confirm.base, title, "Russian");
-					descr = Translate(tr::lng_version_mistmatch_desc.base, descr, "Russian");
-					yes   = Translate(tr::lng_continue.base, yes, "Russian");
-					no    = Translate(tr::lng_cancel.base, no, "Russian");
-				}
 				QMessageBox msgBox(QMessageBox::Icon::Question, 
 					title, 
 					descr, 

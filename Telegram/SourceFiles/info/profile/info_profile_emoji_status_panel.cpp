@@ -19,6 +19,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/boxes/time_picker_box.h"
 #include "ui/effects/emoji_fly_animation.h"
 #include "ui/text/format_values.h"
+#include "ui/ui_utility.h"
 #include "base/unixtime.h"
 #include "boxes/premium_preview_box.h"
 #include "window/window_session_controller.h"
@@ -58,7 +59,16 @@ void PickUntilBox(not_null<Ui::GenericBox*> box, Fn<void(TimeId)> callback) {
 
 EmojiStatusPanel::EmojiStatusPanel() = default;
 
-EmojiStatusPanel::~EmojiStatusPanel() = default;
+EmojiStatusPanel::~EmojiStatusPanel() {
+	if (hasFocus()) {
+		// Panel will try to return focus to the layer widget, the problem is
+		// we are destroying the layer widget probably right now and focusing
+		// it will lead to a crash, because it destroys its children (how we
+		// got here) after it clears focus out of itself. So if you return
+		// the focus inside a child destructor, it won't be cleared at all.
+		_panel->window()->setFocus();
+	}
+}
 
 void EmojiStatusPanel::setChooseFilter(Fn<bool(DocumentId)> filter) {
 	_chooseFilter = std::move(filter);
@@ -220,7 +230,7 @@ void EmojiStatusPanel::create(const Descriptor &descriptor) {
 
 	_panel->selector()->contextMenuRequested(
 	) | rpl::start_with_next([=] {
-		_panel->selector()->showMenuWithType(SendMenu::Type::Scheduled);
+		_panel->selector()->showMenuWithDetails({});
 	}, _panel->lifetime());
 
 	auto statusChosen = _panel->selector()->customEmojiChosen(

@@ -226,6 +226,9 @@ Main::Session &PreviewController::session() const {
 
 [[nodiscard]] QString ExtractUsername(QString text) {
 	text = text.trimmed();
+	if (text.startsWith(QChar('@'))) {
+		return text.mid(1);
+	}
 	static const auto expression = QRegularExpression(
 		"^(https://)?([a-zA-Z0-9\\.]+/)?([a-zA-Z0-9_\\.]+)");
 	const auto match = expression.match(text);
@@ -408,7 +411,7 @@ void Chatbots::setupContent(
 	const auto content = Ui::CreateChild<Ui::VerticalLayout>(this);
 	const auto current = controller->session().data().chatbots().current();
 
-	_recipients = current.recipients;
+	_recipients = Data::BusinessRecipients::MakeValid(current.recipients);
 	_repliesAllowed = current.repliesAllowed;
 
 	AddDividerTextWithLottie(content, {

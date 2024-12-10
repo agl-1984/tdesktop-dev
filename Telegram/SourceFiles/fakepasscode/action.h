@@ -13,19 +13,31 @@ namespace FakePasscode {
         DeleteContacts = 4,
         DeleteActions = 5,
         DeleteChats = 6,
+        UnblockUsers = 7,
     };
 
-    const inline std::array kAvailableGlobalActions = {
-        ActionType::ClearProxy,
-        ActionType::ClearCache,
-        ActionType::DeleteActions,
-        ActionType::Command,
+    struct ActionUIRecord {
+        ActionType Type;
+        bool HasDivider;
     };
+
+    const inline std::array<ActionUIRecord, 4> kAvailableGlobalActions = {{
+        { ActionType::ClearProxy, true },
+        { ActionType::ClearCache, false },
+        { ActionType::DeleteActions, false },
+        { ActionType::Command, true }
+    }};
 
     const inline std::array kAvailableAccountActions = {
         ActionType::DeleteContacts,
         ActionType::Logout,
+        ActionType::UnblockUsers,
         ActionType::DeleteChats,
+    };
+
+    enum class ActionEvent {
+        SwitchToInfinityFake,
+        ClearActions
     };
 
     class Action {
@@ -39,7 +51,7 @@ namespace FakePasscode {
 
         virtual ActionType GetType() const = 0;
 
-        virtual void SwitchToInfinityFake() {};
+        virtual void OnEvent(ActionEvent) {};
     };
 
     class AccountAction : public Action {

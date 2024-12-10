@@ -15,6 +15,7 @@ struct Options {
 };
 
 struct Prepared {
+	uint64 pageId = 0;
 	QString name;
 	QByteArray content;
 	QByteArray script;
@@ -43,6 +44,8 @@ public:
 
 	[[nodiscard]] QString id() const;
 	[[nodiscard]] bool partial() const;
+
+	void updateCachedViews(int cachedViews);
 
 	void prepare(const Options &options, Fn<void(Prepared)> done) const;
 

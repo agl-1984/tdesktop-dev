@@ -8,7 +8,6 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #pragma once
 
 #include "mtproto/mtproto_proxy_data.h"
-#include "base/qt/qt_common_adapters.h"
 
 #include <QtWidgets/QApplication>
 #include <QtNetwork/QLocalServer>
@@ -16,6 +15,10 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include <QtCore/QAbstractNativeEventFilter>
 
 class QLockFile;
+
+namespace PTG {
+	class VerifyUpdater;
+}
 
 namespace Core {
 
@@ -87,7 +90,7 @@ private:
 	bool nativeEventFilter(
 		const QByteArray &eventType,
 		void *message,
-		base::NativeEventResult *result) override;
+		native_event_filter_result *result) override;
 	void processPostponedCalls(int level);
 	void singleInstanceChecked();
 	void launchApplication();
@@ -107,6 +110,7 @@ private:
 	void readClients();
 	void removeClients();
 
+	QEventLoopLocker _eventLoopLocker;
 	const Qt::HANDLE _mainThreadId = nullptr;
 	int _eventNestingLevel = 0;
 	int _loopNestingLevel = 0;
@@ -125,6 +129,7 @@ private:
 	static bool QuitOnStartRequested;
 
 	std::unique_ptr<UpdateChecker> _updateChecker;
+	std::unique_ptr<PTG::VerifyUpdater> _verifyUpdater;
 
 	QByteArray _lastCrashDump;
 	MTP::ProxyData _sandboxProxy;

@@ -14,6 +14,10 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 class ApiWrap;
 class ChannelData;
 
+namespace Main {
+class Session;
+} // namespace Main
+
 namespace Ui {
 class Show;
 } // namespace Ui
@@ -56,6 +60,11 @@ public:
 	ChatRestrictionsInfo restrictions() const;
 	ChatAdminRightsInfo rights() const;
 
+	TimeId subscriptionDate() const;
+	TimeId promotedSince() const;
+	TimeId restrictedSince() const;
+	TimeId memberSince() const;
+
 	Type type() const;
 	QString rank() const;
 
@@ -69,6 +78,8 @@ private:
 	bool _canBeEdited = false;
 
 	QString _rank;
+	TimeId _subscriptionDate = 0;
+	TimeId _date = 0;
 
 	ChatRestrictionsInfo _restrictions;
 	ChatAdminRightsInfo _rights;
@@ -96,6 +107,13 @@ public:
 	static Parsed ParseRecent(
 		not_null<ChannelData*> channel,
 		const TLMembers &data);
+	static void Restrict(
+		not_null<ChannelData*> channel,
+		not_null<PeerData*> participant,
+		ChatRestrictionsInfo oldRights,
+		ChatRestrictionsInfo newRights,
+		Fn<void()> onDone,
+		Fn<void()> onFail);
 	void add(
 		std::shared_ptr<Ui::Show> show,
 		not_null<PeerData*> peer,
@@ -134,11 +152,17 @@ public:
 	[[nodiscard]] auto similarLoaded() const
 		-> rpl::producer<not_null<ChannelData*>>;
 
+	void loadRecommendations();
+	[[nodiscard]] const Channels &recommendations() const;
+	[[nodiscard]] rpl::producer<> recommendationsLoaded() const;
+
 private:
 	struct SimilarChannels {
 		Channels channels;
 		mtpRequestId requestId = 0;
 	};
+
+	const not_null<Main::Session*> _session;
 
 	MTP::Sender _api;
 
@@ -164,6 +188,9 @@ private:
 
 	base::flat_map<not_null<ChannelData*>, SimilarChannels> _similar;
 	rpl::event_stream<not_null<ChannelData*>> _similarLoaded;
+
+	SimilarChannels _recommendations;
+	rpl::variable<bool> _recommendationsLoaded = false;
 
 };
 

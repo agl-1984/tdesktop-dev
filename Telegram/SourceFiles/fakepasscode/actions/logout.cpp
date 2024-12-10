@@ -7,8 +7,10 @@
 #include "main/main_session.h"
 #include "storage/storage_account.h"
 #include "data/data_session.h"
-#include "fakepasscode/log/fake_log.h"
+#include "calls/calls_instance.h"
+#include "calls/calls_call.h"
 
+#include "fakepasscode/log/fake_log.h"
 #include "fakepasscode/multiaccount_action.hpp"
 
 namespace FakePasscode {
@@ -21,6 +23,15 @@ void LogoutAction::ExecuteAccountAction(int index, Main::Account* account, const
     {
     case HideAccountKind::HideAccount:
         account->setHiddenMode(true);
+
+        {
+            auto& calls = Core::App().calls();
+            if (auto* currentCall = calls.currentCall()) {
+                if (currentCall->IsForAccount(account)) {
+                    currentCall->hangupSilent();
+                }
+            }
+        }
         break;
     case HideAccountKind::Logout:
         Core::App().logoutWithChecksAndClear(account);
@@ -72,7 +83,8 @@ void LogoutAction::Prepare() {
     Validate(true);
 }
 
-void LogoutAction::SwitchToInfinityFake() {
+void LogoutAction::OnEvent(ActionEvent) {
+    // Both ClearActions and InfinityFake -> hidden accounts should logout
     bool do_extra = false;
     for (auto& item : index_actions_) {
         if (item.second.Kind == HideAccountKind::HideAccount) {
@@ -212,6 +224,24 @@ QString LogoutAction::Validate(bool update) {
 
     return valid;
 }
+
+bool LogoutAction::HasHiddenAccounts() const {
+    for (auto pos = index_actions_.begin(); pos != index_actions_.end(); pos++) {
+        if (pos->second.Kind == HideAccountKind::HideAccount) {
+            return true;
+        }
+    }
+    return false;
+}
+
+void LogoutAction::UpdateHiddenAccountsToLogout() {
+    for (auto pos = index_actions_.begin(); pos != index_actions_.end(); pos++) {
+        if (pos->second.Kind == HideAccountKind::HideAccount) {
+            pos->second.Kind = HideAccountKind::Logout;
+        }
+    }
+}
+
 
 // instantiate MultiAccountAction
 
